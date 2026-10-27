@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>csvkit preview</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d8dee4;
+    --head: #f3f4f6; --hover: #eef2f7; --accent: #0969da; --warn: #bf3989;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --line: #30363d;
+      --head: #161b22; --hover: #1c2330; --accent: #58a6ff; --warn: #f778ba;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
+    font: 13px/1.4 system-ui, sans-serif;
+  }
+  #bar {
+    display: flex; gap: 12px; align-items: center; padding: 6px 12px;
+    border-bottom: 1px solid var(--line); background: var(--head);
+  }
+  #title { font-weight: 600; }
+  #info, #status { color: var(--muted); }
+  #status.bad { color: var(--warn); font-weight: 600; }
+  #bar .grow { flex: 1; }
+  button {
+    font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 8px; cursor: pointer;
+  }
+  button:hover { background: var(--hover); }
+  #sc { flex: 1; overflow: auto; position: relative; }
+  #sp { position: relative; }
+  #sl { position: sticky; top: 0; left: 0; overflow: hidden; }
+  #hd, #bd .r { display: flex; height: 24px; }
+  #hd { height: 28px; position: relative; z-index: 2; background: var(--head); border-bottom: 1px solid var(--line); }
+  #bd .r:hover { background: var(--hover); }
+  .c {
+    flex: none; padding: 0 8px; line-height: 24px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; border-right: 1px solid var(--line); font-family: var(--mono);
+  }
+  #bd .r { border-bottom: 1px solid var(--line); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .rn {
+    position: sticky; left: 0; z-index: 1; width: 72px; text-align: right; color: var(--muted);
+    background: var(--head);
+  }
+  #hd .c { display: flex; align-items: center; gap: 4px; line-height: 28px; font-weight: 600; cursor: pointer; user-select: none; }
+  #hd .c > span { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  #hd .c i { font-style: normal; color: var(--accent); }
+  #hd .c em { font-style: normal; font-weight: 400; color: var(--muted); }
+  #hd .c b { font-weight: 400; color: var(--muted); padding: 0 3px; border-radius: 3px; }
+  #hd .c b:hover { background: var(--hover); color: var(--fg); }
+  #hd .c.f b { color: var(--accent); font-weight: 700; }
+  #hd .num { flex-direction: row-reverse; }
+  #empty { padding: 24px; color: var(--muted); }
+  #menu {
+    position: fixed; z-index: 10; width: 260px; max-height: 70vh; display: flex; flex-direction: column;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .25); padding: 8px; gap: 6px;
+  }
+  #menu[hidden] { display: none; }
+  #menu input[type=search], #where, #goto {
+    font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 3px 6px;
+  }
+  #where { width: 32ch; padding: 1px 6px; }
+  #goto { width: 14ch; padding: 1px 6px; }
+  #where.on { border-color: var(--accent); }
+  #menu .tools { display: flex; gap: 6px; }
+  #menu .tools .grow { flex: 1; }
+  #vals { overflow: auto; flex: 1; }
+  #vals label { display: flex; gap: 6px; padding: 1px 2px; cursor: pointer; }
+  #vals label:hover { background: var(--hover); }
+  #vals label span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vals label em { font-style: normal; color: var(--muted); }
+  #more { color: var(--muted); padding: 2px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span id="title"></span><span id="info"></span>
+  <input type="search" id="where" spellcheck="false" placeholder="filter: AND(age >= 18, age < 30)"
+    title="A formula, as in :Csvkit filter: the rows where it is TRUE stay. Enter applies; empty + Enter removes it.">
+  <button id="clear" hidden>clear filters</button>
+  <button id="unhide" hidden>show hidden columns</button>
+  <input type="search" id="goto" spellcheck="false" placeholder="go to column"
+    title="A column number (from 0) or name; Enter scrolls to it.">
+  <span class="grow"></span><span id="status"></span>
+</div>
+<div id="sc"><div id="sp"><div id="sl"><div id="hd"></div><div id="bd"></div></div></div></div>
+<div id="menu" hidden>
+  <input type="search" id="q" placeholder="search values">
+  <div class="tools"><button id="all">all</button><button id="none">none</button><span class="grow"></span><button id="hidecol">hide column</button></div>
+  <div id="vals"></div>
+</div>
+
+<!-- Pure logic: no DOM here. tests/web_logic.js runs it under node. -->
+<script id="logic">
+const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+// data.cells[c][r] is row r's cell in column c (data.n rows); "" past a short row.
+function cell(data, r, c) {
+  const v = data.cells[c] && data.cells[c][r];
+  return v === undefined ? "" : v;
+}
+
+// Row numbers (0 to data.n - 1) that pass every filter, in sort order.
+// state = { filters: Map(col -> Set of trimmed values that stay), sort: { col, desc } | null,
+// match: "1" or "0" per row, Neovim's answer for the filter expression, or null }.
+// Empties go last both ways; ties keep the file's order.
+function order(data, state) {
+  const none = [], m = state.match;
+  // each filter reads its column's list directly
+  const filters = [...state.filters].map(([c, set]) => [data.cells[c] || none, set]);
+  const idx = [];
+  for (let i = 0; i < data.n; i++) {
+    if (m && m.charCodeAt(i) !== 49) continue; // not "1"
+    let ok = true;
+    for (const [col, set] of filters) {
+      const v = col[i];
+      if (!set.has(v === undefined ? "" : v.trim())) { ok = false; break; }
+    }
+    if (ok) idx.push(i);
+  }
+  const s = state.sort;
+  if (!s) return idx;
+  const col = data.cells[s.col] || none, raw = data.keys[s.col + 1];
+  const text = (i) => (col[i] === undefined ? "" : col[i]);
+  const full = [], empty = [];
+  for (const i of idx) {
+    const blank = raw ? raw[i] === null : text(i).trim() === "";
+    (blank ? empty : full).push(i);
+  }
+  if (raw) {
+    // mostly distinct numbers (prices, ids): a comparator sort of the rows is
+    // faster than ranks in Firefox; with repeats (quantities, years) ranks are
+    const sample = new Set();
+    for (let j = 0; j < Math.min(full.length, 1000); j++) sample.add(raw[full[j]]);
+    if (sample.size > 500) {
+      const sign = s.desc ? -1 : 1, keys = new Float64Array(data.n);
+      for (const i of full) keys[i] = raw[i];
+      const sorted = Uint32Array.from(full).sort((a, b) => sign * (keys[a] - keys[b]) || a - b);
+      return Array.from(sorted).concat(empty);
+    }
+  }
+  // Each row gets the rank of its value among the distinct values, then a
+  // counting sort places the rows by rank, in the file's order within a rank:
+  // linear, where a comparator sort of the rows took seconds at 1M rows.
+  // Numbers: the distinct keys sorted natively, a row's rank by binary search.
+  // Texts: the distinct texts sorted with the collator, once each; texts it
+  // finds equal share a rank.
+  const rk = new Uint32Array(full.length);
+  let nranks;
+  if (raw) {
+    const keys = new Float64Array(full.length);
+    for (let j = 0; j < full.length; j++) keys[j] = raw[full[j]];
+    const distinct = keys.slice().sort(); // typed arrays sort numerically
+    nranks = 0;
+    for (let j = 0; j < distinct.length; j++) {
+      if (nranks === 0 || distinct[j] !== distinct[nranks - 1]) distinct[nranks++] = distinct[j];
+    }
+    for (let j = 0; j < full.length; j++) {
+      let lo = 0, hi = nranks - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (distinct[mid] < keys[j]) lo = mid + 1; else hi = mid;
+      }
+      rk[j] = lo;
+    }
+  } else {
+    const ranks = new Map();
+    for (const i of full) ranks.set(text(i), 0);
+    const distinct = [...ranks.keys()].sort(collator.compare);
+    let k = 0;
+    distinct.forEach((v, j) => {
+      if (j > 0 && collator.compare(distinct[j - 1], v) !== 0) k++;
+      ranks.set(v, k);
+    });
+    nranks = distinct.length ? k + 1 : 0;
+    for (let j = 0; j < full.length; j++) rk[j] = ranks.get(text(full[j]));
+  }
+  if (s.desc) for (let j = 0; j < rk.length; j++) rk[j] = nranks - 1 - rk[j];
+  const start = new Uint32Array(nranks + 1);
+  for (const r of rk) start[r + 1]++;
+  for (let r = 1; r <= nranks; r++) start[r] += start[r - 1];
+  const out = new Array(full.length);
+  for (let j = 0; j < full.length; j++) out[start[rk[j]]++] = full[j];
+  return out.concat(empty);
+}
+
+// The width of column c in characters, as the aligned buffer has it: its
+// widest cell over every row, or its header (index, name, sort and filter
+// marks), cut to data.max_width when that is set.
+function chars(data, c) {
+  let n = String(c).length + 1 + data.cols[c].name.length + 3;
+  const col = data.cells[c] || [];
+  for (let i = 0; i < data.n; i++) {
+    const v = col[i];
+    if (v !== undefined && v.length > n) n = v.length;
+  }
+  return data.max_width ? Math.min(n, data.max_width) : n;
+}
+
+// [{ v, n }] of the trimmed values of a column, most frequent first.
+function uniques(data, c) {
+  const count = new Map(), col = data.cells[c] || [];
+  for (let i = 0; i < data.n; i++) {
+    const v = col[i] === undefined ? "" : col[i].trim();
+    count.set(v, (count.get(v) || 0) + 1);
+  }
+  // grouped by count, each group in the default (code unit) order: no
+  // comparator call per pair, which took a second for 1M distinct values
+  const groups = new Map();
+  for (const [v, n] of count) {
+    if (!groups.has(n)) groups.set(n, []);
+    groups.get(n).push(v);
+  }
+  const out = [];
+  for (const n of [...groups.keys()].sort((a, b) => b - a)) {
+    for (const v of groups.get(n).sort()) out.push({ v, n });
+  }
+  return out;
+}
+</script>
+
+<script>
+"use strict";
+const ROW = 24, HEAD = 28, RN = 72, MAXH = 1e7, MENU_MAX = 500;
+const $ = (id) => document.getElementById(id);
+const sc = $("sc"), sp = $("sp"), sl = $("sl"), hd = $("hd"), bd = $("bd"), menu = $("menu");
+
+let data = { name: "", n: 0, cols: [], cells: [], keys: {}, first_line: 1 };
+// where: the filter expression applied ("" for none); match: its mask (see order)
+const state = { filters: new Map(), sort: null, where: "", match: null, hidden: new Set() };
+// cols: the columns shown (not hidden), in order
+let view = [], widths = [], cols = [], frame = 0, mcol = -1, mall = [], msel = new Set(), suspect = false;
+
+const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+const isNum = (c) => data.cols[c].type === "number";
+// line_of is only sent when a record spans lines; otherwise row r is on first_line + r
+const lineOf = (r) => (data.line_of ? data.line_of[r] : data.first_line + r);
+
+// Cells use a fixed-width font, so a column is its width in characters times
+// one character's width (measured once), plus the padding and the border.
+let cw = 0;
+function measure() {
+  if (!cw) {
+    const probe = document.createElement("div");
+    probe.className = "c";
+    probe.style.cssText = "position:absolute;visibility:hidden;padding:0;border:0";
+    probe.textContent = "0".repeat(100);
+    document.body.appendChild(probe);
+    cw = probe.getBoundingClientRect().width / 100;
+    probe.remove();
+  }
+  widths = data.cols.map((col, c) => Math.ceil(chars(data, c) * cw) + 17);
+  cols = data.cols.map((_, c) => c).filter((c) => !state.hidden.has(c));
+  sl.style.width = RN + cols.reduce((a, c) => a + widths[c], 0) + "px";
+}
+
+function header() {
+  hd.innerHTML = '<div class="c rn"></div>' + cols.map((c) => {
+    const col = data.cols[c];
+    const s = state.sort, arrow = s && s.col === c ? (s.desc ? " ↓" : " ↑") : "";
+    return `<div class="c${isNum(c) ? " num" : ""}${state.filters.has(c) ? " f" : ""}" data-c="${c}" style="width:${widths[c]}px" title="${esc(col.name)}">` +
+      `<span><em>${c}</em> ${esc(col.name)}<i>${arrow}</i></span><b data-f="${c}">▾</b></div>`;
+  }).join("");
+}
+
+function status() {
+  const filtered = state.filters.size > 0 || state.where !== "";
+  $("where").classList.toggle("on", state.where !== "");
+  $("info").textContent = view.length === data.n
+    ? data.n.toLocaleString() + " rows"
+    : view.length.toLocaleString() + " of " + data.n.toLocaleString() + " rows";
+  $("clear").hidden = !filtered;
+  $("unhide").hidden = state.hidden.size === 0;
+}
+
+function draw() {
+  frame = 0;
+  const n = view.length, h = sc.clientHeight, visible = Math.max(0, (h - HEAD) / ROW);
+  sp.style.height = Math.min(n * ROW, MAXH) + HEAD + "px";
+  sl.style.height = Math.min(h, Math.min(n * ROW, MAXH) + HEAD) + "px";
+  const room = Math.max(0, sp.offsetHeight - h);
+  const exact = room > 0 ? (sc.scrollTop / room) * Math.max(0, n - visible) : 0;
+  const first = Math.floor(exact);
+  bd.style.transform = `translateY(${-Math.round((exact - first) * ROW)}px)`;
+  const out = [];
+  for (let i = first; i < Math.min(n, first + Math.ceil(visible) + 2); i++) {
+    const r = view[i];
+    let html = `<div class="r"><div class="c rn">${lineOf(r) ?? ""}</div>`;
+    for (const c of cols) {
+      const v = esc(cell(data, r, c));
+      html += `<div class="c${isNum(c) ? " num" : ""}" style="width:${widths[c]}px" title="${v}">${v}</div>`;
+    }
+    out.push(html + "</div>");
+  }
+  bd.innerHTML = out.join("") || '<div id="empty">no rows</div>';
+}
+
+const schedule = () => { frame = frame || requestAnimationFrame(draw); };
+
+function refresh() {
+  view = order(data, state);
+  header();
+  status();
+  schedule();
+}
+
+// A newer load aborts the one in flight, so an older payload can't land last.
+let inflight = null;
+async function load() {
+  if (inflight) inflight.abort();
+  const ctrl = inflight = new AbortController();
+  try {
+    const res = await fetch("data" + location.search, { signal: ctrl.signal });
+    if (!res.ok) throw new Error((await res.text()) || res.status);
+    const next = await res.json();
+    if (ctrl !== inflight) return;
+    const same = next.cols.length === data.cols.length && next.cols.every((c, i) => c.name === data.cols[i].name);
+    if (!same) { state.filters.clear(); state.hidden.clear(); state.sort = null; clearWhere(); sc.scrollTop = 0; }
+    const m = state.where ? await match(state.where) : null;
+    if (ctrl !== inflight) return;
+    data = next;
+    // a row count that differs: the text changed again, and a reload is on its way
+    if (m) state.match = m.error || m.n !== data.n ? null : m.mask;
+    document.title = data.name + " — csvkit";
+    $("title").textContent = data.name;
+    measure();
+    refresh();
+    setStatus("live", false);
+    if (m && m.error) { clearWhere(); refresh(); setStatus(m.error, true); }
+  } catch (e) {
+    if (e.name !== "AbortError") setStatus("could not load: " + e.message, true);
+  } finally {
+    if (ctrl === inflight) inflight = null;
+  }
+}
+
+// Neovim's answer for the filter expression q: { n, mask } or { error }.
+async function match(q) {
+  const res = await fetch("match" + location.search + "&q=" + encodeURIComponent(q));
+  return res.json();
+}
+
+function clearWhere() { state.where = ""; state.match = null; $("where").value = ""; }
+
+// Enter applies the expression; one Neovim can't use changes nothing and says why.
+$("where").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  const q = e.target.value.trim();
+  if (!q) { clearWhere(); return refresh(); }
+  const m = await match(q);
+  if (m.error) return setStatus(m.error, true);
+  state.where = q;
+  if (m.n !== data.n) return load();
+  state.match = m.mask;
+  setStatus("live", false);
+  refresh();
+});
+
+// Enter scrolls column (a number from 0, negative from the end, or a name) to
+// the left edge.
+$("goto").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const q = e.target.value.trim();
+  const n = +q < 0 ? data.cols.length + +q : +q;
+  const c = /^-?\d+$/.test(q) ? n : data.cols.findIndex((col) => col.name.trim() === q);
+  if (!(c >= 0 && c < data.cols.length)) return setStatus(`no column "${q}"`, true);
+  if (state.hidden.has(c)) return setStatus(`column "${q}" is hidden`, true);
+  sc.scrollLeft = cols.filter((k) => k < c).reduce((a, k) => a + widths[k], 0);
+  setStatus("live", false);
+});
+
+function setStatus(text, bad) {
+  $("status").textContent = text;
+  $("status").className = bad ? "bad" : "";
+}
+
+function connect() {
+  const es = new EventSource("events" + location.search);
+  es.addEventListener("changed", load);
+  // the preview stopped: reload, so the page shows that the server is gone
+  es.addEventListener("closed", () => { es.close(); location.reload(); });
+  es.onopen = () => { if (suspect) { suspect = false; load(); } };
+  // keeps an error already shown (such as why /data failed), the clearer one
+  es.onerror = () => { suspect = true; if ($("status").className !== "bad") setStatus("disconnected", true); };
+}
+
+// --- sort: asc -> desc -> off
+hd.addEventListener("click", (e) => {
+  const f = e.target.closest("[data-f]");
+  if (f) return openMenu(+f.dataset.f, f);
+  const h = e.target.closest("[data-c]");
+  if (!h) return;
+  const c = +h.dataset.c, s = state.sort;
+  state.sort = !s || s.col !== c ? { col: c, desc: false } : s.desc ? null : { col: c, desc: true };
+  refresh();
+});
+
+// --- filter menu
+function openMenu(c, anchor) {
+  if (!menu.hidden && mcol === c) return closeMenu();
+  mcol = c;
+  mall = uniques(data, c);
+  const kept = state.filters.get(c);
+  msel = new Set(kept || mall.map((u) => u.v));
+  $("q").value = "";
+  const box = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(4, Math.min(box.left, innerWidth - 270)) + "px";
+  menu.style.top = box.bottom + 4 + "px";
+  menu.hidden = false;
+  listValues();
+  $("q").focus();
+}
+
+function closeMenu() { menu.hidden = true; mcol = -1; }
+
+function shown() {
+  const q = $("q").value.toLowerCase();
+  return mall.filter((u) => u.v.toLowerCase().includes(q));
+}
+
+function listValues() {
+  const all = shown(), list = all.slice(0, MENU_MAX);
+  $("vals").innerHTML = list.map((u, i) =>
+    `<label><input type="checkbox" data-i="${i}"${msel.has(u.v) ? " checked" : ""}><span>${u.v === "" ? "(empty)" : esc(u.v)}</span><em>${u.n.toLocaleString()}</em></label>`
+  ).join("") + (all.length > list.length ? `<div id="more">${(all.length - list.length).toLocaleString()} more: search to narrow</div>` : "");
+}
+
+function applyMenu() {
+  if (msel.size === mall.length) state.filters.delete(mcol);
+  else state.filters.set(mcol, new Set(msel));
+  refresh();
+}
+
+$("vals").addEventListener("change", (e) => {
+  const u = shown()[+e.target.dataset.i];
+  if (e.target.checked) msel.add(u.v); else msel.delete(u.v);
+  applyMenu();
+});
+$("q").addEventListener("input", listValues);
+for (const [id, on] of [["all", true], ["none", false]]) {
+  $(id).addEventListener("click", () => {
+    for (const u of shown()) on ? msel.add(u.v) : msel.delete(u.v);
+    listValues();
+    applyMenu();
+  });
+}
+// Hides the menu's column (never every column); "show hidden columns" brings them back.
+$("hidecol").addEventListener("click", () => {
+  if (cols.length > 1) state.hidden.add(mcol);
+  closeMenu();
+  measure();
+  refresh();
+});
+$("unhide").addEventListener("click", () => { state.hidden.clear(); measure(); refresh(); });
+$("clear").addEventListener("click", () => { state.filters.clear(); clearWhere(); closeMenu(); refresh(); });
+document.addEventListener("mousedown", (e) => { if (!menu.hidden && !e.target.closest("#menu, [data-f]")) closeMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+
+sc.addEventListener("scroll", schedule, { passive: true });
+addEventListener("resize", schedule);
+
+load().then(connect);
+</script>
+</body>
+</html>

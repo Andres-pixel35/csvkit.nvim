@@ -1,0 +1,471 @@
+*csvkit.txt*  View, sort, filter and fill in CSV files inside Neovim
+
+==============================================================================
+CONTENTS                                                     *csvkit-contents*
+
+  1. Introduction ............................. |csvkit|
+  2. Commands ................................. |csvkit-commands|
+  3. Keymaps .................................. |csvkit-mappings|
+  4. Views .................................... |csvkit-views|
+  5. Configuration ............................ |csvkit-config|
+  6. Value types .............................. |csvkit-types|
+  7. Formulas ................................. |csvkit-formulas|
+  8. Limits ................................... |csvkit-limits|
+
+==============================================================================
+1. INTRODUCTION                                                       *csvkit*
+
+csvkit.nvim is for SMALL FILES (under about 100 MB): looking at data quickly,
+filtering it, and filling in or fixing values. It is not a big-data tool; for
+bigger files use Excel or pandas.
+
+Requires Neovim 0.10 or newer. No other dependencies.
+
+Open a CSV file and its columns are aligned. Everything else is done with the
+|:Csvkit| command. Each command is one edit: |u| undoes it and |:w| saves it.
+Rows a command does not touch keep their exact text.
+
+==============================================================================
+2. COMMANDS                                        *csvkit-commands* *:Csvkit*
+
+One command, `:Csvkit`, followed by what to do. <Tab> completes subcommands,
+options and column names.
+
+Notation: {col} is a column, {expr} a formula (|csvkit-formulas|), [...] is
+optional and a|b means one of the two.
+
+                                                              *csvkit-columns*
+A column {col} is written as:
+    price        its header name
+    unit\ price  a header name with a space (put `\` before it)
+    3            its number, COUNTING FROM 0: `3` is the fourth column
+    -1           counting from the end: `-1` is the last column
+The sticky header and the table view show each column's number before its
+name. Left out, {col} is the column under the cursor. Commands that take
+several columns also take ranges `a-b`, both ends included: `2-5`, `2--1`
+(from column 2 to the last).
+
+Most commands work in the file's buffer, changing it directly, and in the
+table view (|csvkit-view|), where they are STAGED: shown at once, written to
+the file only by |:Csvkit-apply|.
+
+                                                               *:Csvkit-sort*
+:Csvkit sort [{col}] [asc|desc] [num|str|date]
+    Sort the rows by {col}; the header stays on top. Numbers sort as
+    numbers and dates as dates; `num`, `str` or `date` forces a type. Empty
+    cells always go last. Rows with equal values keep their order. Text
+    ignores case first. In the table view, only the view is sorted.
+
+                                                             *:Csvkit-filter*
+:Csvkit filter [{col}]
+    Open a list of the column's values with their counts. Untick values to
+    hide the rows that have them (|csvkit-filter|). Keys: <Space> or <Tab>
+    tick/untick, `a` all or none, <CR> apply, `q` or <Esc> cancel.
+:Csvkit filter {expr}
+    Show only the rows where the formula is TRUE: `price > 100`,
+    `AND(price >= 10, price <= 20)`. Anything but a single column name is a
+    formula. A row where it cannot be computed is hidden. A new condition
+    replaces the previous one.
+:Csvkit filter clear
+    Show every row again.
+
+    Filters only HIDE rows; |:w| saves all of them. Filters on several
+    columns and the condition all apply together (AND).
+
+                                                                *:Csvkit-row*
+:Csvkit row add [above|below]
+    Insert an empty row below (default) or above the cursor's row, and move
+    the cursor to it.
+
+                                                         *:Csvkit-row-delete*
+:[range]Csvkit row delete
+    Delete the row under the cursor, or every row the range touches
+    (`:'<,'>Csvkit row delete` after a visual selection).
+:Csvkit row delete where {expr}
+    Delete the visible rows where the formula is TRUE. Rows where it cannot
+    be computed are kept, and so are the rows the filters hide.
+:Csvkit row delete hidden
+    Delete the rows the filters hide. This is the only way filtering leads
+    to deleting.
+    The header row is never deleted.
+
+                                                             *:Csvkit-addcol*
+:Csvkit addcol {name} [after|before {col}] value {text}
+:Csvkit addcol {name} [after|before {col}] formula {expr}
+:Csvkit addcol {name} [after|before {col}] fill
+:Csvkit addcol
+    Add a column named {name} right after the column under the cursor, or
+    after or before {col}: `addcol id before 0 value 1` (first column),
+    `addcol total after -1 formula price * qty` (last column).
+    `value`    every row gets {text}.
+    `formula`  each visible row gets the formula's result, computed once
+               and written as plain text (|csvkit-formulas|); a row the
+               filters hide gets an empty cell.
+    `fill`     you are asked for each row's value in turn; <CR> with nothing
+               typed leaves it empty, <Esc> stops (the rest stay empty).
+    With no arguments, every part is asked for, the position too (<CR>
+    with nothing typed: after the column under the cursor).
+
+                                                             *:Csvkit-setcol*
+:Csvkit setcol {col} formula {expr}
+    Replace the values of an existing column with the formula's results.
+    The formula may read {col} itself: `setcol price formula price * 1.1`.
+    Only that column's text, on the visible rows: a row the filters hide
+    keeps its value. |csvkit-prev| reads the rows in the order you see them.
+
+    For both addcol and setcol, a row where the formula fails gets an empty
+    cell, and a warning gives the count, the line numbers of the first five
+    and the first reason.
+
+                                                             *:Csvkit-delcol*
+:Csvkit delcol [{col} ...]
+    Delete columns from every row, header included: names, numbers and
+    ranges (`:Csvkit delcol 2-5 notes`). The other fields keep their text.
+
+                                                               *:Csvkit-goto*
+:Csvkit goto {col}
+    Move the cursor to {col} on the current row and scroll the window so the
+    column starts at its left edge.
+
+                                                              *:Csvkit-stats*
+:[range]Csvkit stats [{col}] [{figure} ...] [n]
+    Show the figures of {col} in a window: its type, rows, empty cells,
+    distinct values and the most common one; for numbers min, max, sum,
+    average and the n (default 5) largest and smallest; for dates the oldest
+    and newest; then every value with its count (count first). Only the
+    rows you see count (filters apply; in the table view, staged changes
+    too); with a range (`:'<,'>`, `:10,20`), only the rows on those lines.
+    Values are shown as the file writes them. <CR> copies the value on the
+    cursor's line to the clipboard (and the unnamed register) and closes;
+    `q` or <Esc> closes.
+    With figures, only those are shown: `:Csvkit stats price max sum`,
+    `:Csvkit stats day newest`, `:Csvkit stats price largest 10`.
+        type rows empty unique common values   any column
+        min max largest smallest               numbers and dates
+        sum average                            numbers
+        oldest newest                          dates (= min, max)
+    A figure the column's type has not is an error. The first word is the
+    column when a column has that name (`stats type` is the column `type`).
+    n goes with largest and smallest only.
+
+                                                               *:Csvkit-hide*
+:Csvkit hide [{col} ...|clear]
+    Table view only: hide columns from the view, or show them all again.
+    Hidden columns are still written by |:Csvkit-apply|.
+
+                                                               *:Csvkit-view*
+:Csvkit view
+    Show the table view of this file in the current window (|csvkit-view|).
+
+                                                              *:Csvkit-apply*
+:Csvkit apply [sort]
+    Table view: write the staged changes into the file's buffer, as one
+    edit. With `sort`, also write the view's sort order. Save with |:w| in
+    the file's buffer.
+                                                            *:Csvkit-discard*
+:Csvkit discard
+    Table view: throw away the staged changes and the sort.
+
+                                                              *:Csvkit-align*
+:Csvkit align [on|off]
+    Turn column alignment (|csvkit-overlay|) on or off. No argument toggles.
+
+                                                            *:Csvkit-decimal*
+:Csvkit decimal {.|,|auto}
+                                                          *:Csvkit-thousands*
+:Csvkit thousands {,|.|space|'|none|auto}
+    Set how numbers are written in this file, when detection guesses wrong.
+    Remembered for the file across sessions. `auto` goes back to detection.
+    Formulas always use `.` for decimals.
+
+                                                            *:Csvkit-restore*
+:Csvkit restore [buffer|file]
+    Bring back the file as it was when you opened it, even after edits and
+    |:w|. csvkit keeps a copy of each file from when it opens until its
+    buffer is closed.
+    `buffer`  put the original text back into the buffer, as one edit you
+              can undo; the file changes when you |:w|.
+    `file`    put the copy back over the file on disk and reload the
+              buffer. The undo history is lost; you are asked first when
+              anything would be lost.
+    Without an argument, the `restore.mode` option decides (`buffer`).
+
+                                                            *:Csvkit-preview*
+:Csvkit preview [stop]
+    Open the file in your browser (|csvkit-preview|), or stop serving it.
+    From a |:Csvkit-view| it previews the view's source file, without the
+    view's sort, filters and staged edits. `stop` says whether a preview
+    was running; open pages reload and show that the server is gone.
+
+                                                                *csvkit-undo*
+Undo: every command is one undo step. Commands other than `row add` replace
+lines, and Neovim keeps the old text of replaced lines (about 85 MB per sort
+of 1M rows), so only the 3 most recent of them stay undoable; your own edits
+before the oldest of the three can no longer be undone either. A lower
+'undolevels' is respected. |:Csvkit-restore| still brings back the original.
+
+==============================================================================
+3. KEYMAPS                                                   *csvkit-mappings*
+
+csvkit defines no keymaps. Map the commands you use, for example: >lua
+    vim.keymap.set("n", "<leader>ks", "<cmd>Csvkit sort asc<cr>")
+    vim.keymap.set("n", "<leader>kf", "<cmd>Csvkit filter<cr>")
+<
+`<cmd>` runs the command without leaving normal mode, `<cr>` is Enter.
+
+These |<Plug>| mappings (normal mode) also exist:
+
+    <Plug>(csvkit-sort-asc)         :Csvkit sort asc
+    <Plug>(csvkit-sort-desc)        :Csvkit sort desc
+    <Plug>(csvkit-filter)           :Csvkit filter
+    <Plug>(csvkit-filter-clear)     :Csvkit filter clear
+    <Plug>(csvkit-row-below)        :Csvkit row add below
+    <Plug>(csvkit-row-above)        :Csvkit row add above
+    <Plug>(csvkit-row-delete)       :Csvkit row delete
+    <Plug>(csvkit-addcol)           :Csvkit addcol
+    <Plug>(csvkit-delcol)           :Csvkit delcol
+    <Plug>(csvkit-hide)             :Csvkit hide
+    <Plug>(csvkit-stats)            :Csvkit stats
+    <Plug>(csvkit-align-toggle)     :Csvkit align
+    <Plug>(csvkit-view)             :Csvkit view
+    <Plug>(csvkit-apply)            :Csvkit apply
+    <Plug>(csvkit-apply-sort)       :Csvkit apply sort
+    <Plug>(csvkit-discard)          :Csvkit discard
+    <Plug>(csvkit-preview)          :Csvkit preview
+    <Plug>(csvkit-restore)          :Csvkit restore
+
+In the table view: <CR> jumps to the row in the file (on the first line, it
+shows all of that line: every filter value and hidden column); `i` edits the
+cell under the cursor (on the header row, it renames the column).
+
+==============================================================================
+4. VIEWS                                                        *csvkit-views*
+
+                                                             *csvkit-overlay*
+Aligned columns ~
+When a CSV file opens, its columns are lined up by padding drawn on screen;
+the delimiter is drawn as `align.separator`. The buffer's text is NOT
+changed: you edit and save the file as it is. Column widths come from the
+widest cell over the whole file, measured in the background. The window's
+'winbar' shows the header row, each name after its column number. Lines do
+not wrap while aligned ('wrap' comes back when alignment is turned off);
+scroll sideways with |zl| and |zh|.
+A row with a line break inside a cell is NOT aligned (|csvkit-limits|).
+
+                                                              *csvkit-filter*
+Filtering ~
+Hidden rows are collapsed into |folds| (built in, no plugin needed), each
+showing how many rows it hides. The file is not changed and the header is
+never hidden. While a filter is
+on, csvkit controls the window's folds: your fold settings come back with
+`:Csvkit filter clear`, but manual folds you made in that window are removed.
+
+                                                                *csvkit-view*
+Table view ~
+`:Csvkit view` shows the file as a table in the current window. Everything
+done there is STAGED: sort, filters, hidden columns, edited cells (`i`), new
+rows and columns, deleted rows and columns show at once, and reach the file's
+buffer only with |:Csvkit-apply|. Filters and hidden columns are never
+applied. `apply` refuses when nothing is staged, or when the file's buffer
+changed after the view read it (|:Csvkit-discard| and start again).
+<CR> or |:b| goes back to the file and keeps the view; |:bdelete| closes it.
+Save with |:w| in the file's buffer. Above 5000 rows the table is drawn as
+you scroll, and `/` finds only rows already drawn. The first line lists at
+most 3 values per filter and may be wider than the window: <CR> on it shows
+all of it.
+
+                                                             *csvkit-preview*
+Browser preview ~
+`:Csvkit preview` shows the file in your browser: a read-only table with
+sorting, filtering by value or by formula, and hiding columns. Nothing done
+in the page changes the file. The page follows your edits: it refreshes once
+you have stopped editing for `preview.debounce_ms`; files larger than
+`preview.live_update_max_mb` refresh on |:w| instead. It is served only on
+127.0.0.1, behind a random secret in its address. Text may sort slightly
+differently than |:Csvkit-sort| for accented letters.
+
+==============================================================================
+5. CONFIGURATION                                               *csvkit-config*
+                                                               *csvkit-setup*
+`setup()` is optional; pass only what you want to change. Defaults: >lua
+    require("csvkit").setup({
+      extensions = { "csv" },      -- file extensions to handle
+      delimiter = "auto",          -- "auto" | "," | ";" | "\t" | "|"
+      header = true,               -- first row holds the column names
+      decimal = "auto",            -- "auto" | "." | ","
+      thousands = "auto",          -- "auto" | false | "," | "." | " " | "'"
+      date_formats = {             -- tried in order
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%d/%m/%Y",
+      },
+      align = {
+        enabled = true,            -- align columns when a file opens
+        separator = "│",           -- drawn in place of the delimiter
+        sticky_header = true,      -- header row in the 'winbar'
+      },
+      view = { max_col_width = 0 },
+      preview = { port = 0, debounce_ms = 300, live_update_max_mb = 2 },
+      restore = { mode = "buffer", backup = true },
+      memory = { trim = false },
+      formula = { prev_default = 0 },
+    })
+<
+`extensions`
+    The file extensions csvkit handles. If your plugin manager loads csvkit
+    by filetype, list the new ones there too (lazy.nvim: `ft`, or
+    `event = "BufReadPre *.tsv"`), or opening such a file will not load it.
+
+`delimiter`, `decimal`, `thousands`
+    "auto" is detected from the first lines of each file (20 for the
+    delimiter, 100 for numbers). Set a value when detection guesses wrong.
+    `thousands = false` means no thousands separator.
+
+`date_formats`
+    Built from `%Y` (4-digit year), `%m`, `%d`, `%H`, `%M`, `%S` (1 or 2
+    digits); every format needs `%Y`, `%m` and `%d`. A cell is a date only if
+    it is a real calendar date. The first format is also the one TODAY() and
+    DATE() write. For month-first files use "%m/%d/%Y" instead of
+    "%d/%m/%Y". Setting it replaces the whole list.
+
+`view.max_col_width`
+    Widest a column can be in the table view and the browser preview, in
+    characters. `0`: no limit, every column as wide as its widest cell. A
+    positive whole number cuts longer cells on screen and ends them with
+    `…`. Any other value is refused with an error.
+
+`preview.port`
+    0 picks any free port; a number keeps the same address.
+`preview.debounce_ms`
+    After your last edit, how long (in milliseconds) the page waits before
+    refreshing, so it refreshes once instead of on every key.
+`preview.live_update_max_mb`
+    Files larger than this (in MB) refresh the page only on |:w|, because
+    preparing its data pauses Neovim. `false`: always refresh on edits.
+
+`restore.mode`
+    What |:Csvkit-restore| does without an argument: "buffer" or "file".
+`restore.backup`
+    `false` makes no copy when a file opens, so there is nothing to restore.
+    Copies live in `stdpath("state")/csvkit/backup/`, readable only by you.
+
+`memory.trim`
+    `true` gives memory back to the system after an edit that rewrote more
+    than 10000 lines (Linux with glibc). Costs a pause of about 0.6 s at 1M
+    rows, so it is off.
+
+`formula.prev_default`
+    What PREV gives when the row it reads is empty or missing
+    (|csvkit-prev|). A number, or a text read like a cell: "-1" is a
+    number, "n/a" text, "" an empty value. Anything else is an error.
+
+Options are layered, the later one wins: `setup()`, then the settings
+remembered for the file (|:Csvkit-decimal|, |:Csvkit-thousands|), then the
+buffer variable `vim.b.csvkit` (e.g. `{ delimiter = ";", decimal = "," }`).
+
+==============================================================================
+6. VALUE TYPES                                                  *csvkit-types*
+
+A cell's type comes from its text, spaces at the ends ignored. The cell is
+never changed.
+
+    empty    nothing but spaces
+    number   sign, digits, decimals, exponent: `42`, `-3.5`, `.5`, `1e3`.
+             NOT numbers: `0x1A`, `inf`, `nan`, `$12`, `45%`. With a
+             thousands separator, groups after the first have 3 digits.
+    date     matches one of `date_formats` and is a real calendar date
+    bool     `true` or `false`, any case
+    text     anything else
+
+A column sorts by a type only if all its non-empty cells have that type;
+otherwise it sorts as text.
+
+==============================================================================
+7. FORMULAS                                                  *csvkit-formulas*
+
+A formula computes a value for each row. `addcol` and `setcol` run it ONCE
+and write the results as plain text; nothing is recalculated later. Types are
+strict: mixing text and numbers is an error, never a conversion.
+
+With filters on, `addcol`, `setcol` and `row delete where` see only the
+visible rows: hidden rows are not computed, not counted by the aggregates or
+PREV, and never named in the failure warning. A filter's own formula reads
+every row.
+
+Columns: `price` (a header made of letters, digits and _), `[unit price]`
+(any header), `$3` (column number 3, counting from 0), `$-1` (the last
+column). Names match exactly, case included.
+
+Values: numbers with `.` as decimal point (whatever the file uses), text in
+quotes `"Madrid"` (`""` for a quote inside), `TRUE`, `FALSE`. An empty cell
+compares equal to `""`.
+
+Operators, applied in this order (first binds tightest): >
+    ( )
+    -x              (so -2^2 is 4, as in Excel)
+    ^               (from the right: 2^3^2 is 2^9)
+    *  /  %         (% takes the sign of the right side: -7 % 3 is 2)
+    +  -
+    =  <>  <  >  <=  >=
+<
+What can be combined ~
+    number with number       number (dividing by 0 is an error)
+    text + text              the texts joined
+    text with a number       error
+    date +/- number          a date that many days later/earlier
+    date - date              number of days between them
+    empty cell in arithmetic error
+    = and <>                 TRUE/FALSE; different types are never equal
+    < > <= >=                both sides of the same type, else error
+
+Functions (any case) ~
+    SUM AVG MIN MAX COUNT (col)  over the column's visible rows
+    MIN MAX (a, b, ...)          smallest/largest of two or more values
+    ROUND(x, n) ABS(x)           ROUND: halves away from zero; n < 0 rounds
+                                 to tens, hundreds...
+    IF(cond, a, b)               cond must be TRUE or FALSE
+    AND OR NOT
+    CONCAT(...)                  everything joined as text
+    UPPER LOWER LEN              LEN counts characters
+    DATE(y, m, d) TODAY()
+    YEAR MONTH DAY (d)
+    PREV(x) PREV(x, n)           x on the row before, 0 when empty
+                                 (|csvkit-prev|)
+
+A mistake in the formula is reported before anything changes, with its
+position. A row where the formula fails gets an empty cell, and a warning
+gives the count, the line numbers of the first five and the first reason.
+
+Results: whole numbers without decimals, others with up to 15 significant
+digits and the file's decimal separator; dates in the format of the first
+date in the formula; TRUE/FALSE as `TRUE`/`FALSE`.
+
+                                                                 *csvkit-prev*
+PREV(x, n) is x (any formula) on the n-th row before this one (n defaults to
+1), in the order you see the rows when the command runs: in the file's
+buffer, the file's order without the rows your filters hide; in the table
+view, its sort order without the hidden rows. Hidden rows are not computed.
+When the row PREV reads has an empty cell, or there is no such row (the
+first row), PREV is `formula.prev_default`, 0 by default, so
+`total - PREV(total)` works on the first row too. Only the row PREV reads is
+checked. PREV works in `addcol` and `setcol`, not in filters. >
+    :Csvkit setcol growth formula (total - PREV(total)) / PREV(total)
+<
+==============================================================================
+8. LIMITS                                                      *csvkit-limits*
+
+Aimed at files under about 100 MB. At 100k rows most commands take under half
+a second. On a 1M-row, 10-column file (82 MB): sort about 3.7 s and 657 MB
+of memory, addcol with a formula about 8.3 s, and the browser preview about
+10 s to load. These are measurements, not promises.
+
+Rows with a line break inside a cell (a quoted value spanning lines) are
+NOT aligned in the file's buffer: Neovim cannot draw several lines of a file
+as one screen line, so such a row is shown as it is, raw, across its lines,
+and does not count toward the column widths. A file where many cells hold
+line breaks looks mostly unaligned. |:Csvkit-view| shows every row on one
+line (a line break as `⏎`). Every command handles these rows correctly;
+only the alignment is missing.
+
+ vim:tw=78:ts=8:ft=help:norl:
