@@ -111,15 +111,15 @@ function M.entries(cells, opts, spec)
   return out
 end
 
--- Opens the float of entries titled with the column's name; <CR> copies the
--- value of a line to the unnamed register and the clipboard and closes it.
-function M.open(name, entries)
+-- Opens the float of entries titled title; <CR> copies the value of a line to
+-- the unnamed register and the clipboard and closes it. With indent, lines
+-- wrap, go on indent columns in, and the float is as tall as they need.
+function M.open(title, entries, indent)
   local lines, width = {}, 0
   for i, e in ipairs(entries) do
     lines[i] = e[1]
     width = math.max(width, vim.fn.strdisplaywidth(e[1]))
   end
-  local title = (" Stats: %s "):format(name)
   -- at least 1 x 1: a tiny terminal would make them 0 or less, and the float fail
   width = math.max(1, math.min(math.max(width, vim.fn.strdisplaywidth(title)), vim.o.columns - 4))
   local height = math.max(1, math.min(#lines, vim.o.lines - 6))
@@ -127,7 +127,7 @@ function M.open(name, entries)
   vim.bo[buf].bufhidden = "wipe"
   api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
-  local win = api.nvim_open_win(buf, true, {
+  local config = {
     relative = "editor",
     width = width,
     height = height,
@@ -137,8 +137,16 @@ function M.open(name, entries)
     border = "rounded",
     title = title,
     title_pos = "center",
-  })
+  }
+  local win = api.nvim_open_win(buf, true, config)
   vim.wo[win].cursorline = true
+  if indent then -- set explicitly: the float inherits the overlay's nowrap
+    local wo = vim.wo[win]
+    wo.wrap, wo.breakindent, wo.breakindentopt = true, true, "shift:" .. indent
+    config.height = math.max(1, math.min(api.nvim_win_text_height(win, {}).all, vim.o.lines - 6))
+    config.row = math.max(0, math.floor((vim.o.lines - config.height) / 2) - 1)
+    api.nvim_win_set_config(win, config)
+  end
   local function close()
     if api.nvim_win_is_valid(win) then
       api.nvim_win_close(win, true)

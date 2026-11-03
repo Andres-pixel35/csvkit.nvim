@@ -543,7 +543,42 @@ local function stats(args, range)
     name = ("%s (lines %d-%d)"):format(name, range[1], range[2])
   end
   local s = require("csvkit.stats")
-  s.open(name, s.entries(cells, opts, spec))
+  s.open((" Stats: %s "):format(name), s.entries(cells, opts, spec))
+end
+
+-- Record 1 of the current buffer (nil when it is empty) and whether it is the
+-- header. Only the first 100 lines are read: a wide file's lines are long.
+local function first_record()
+  local opts = csvkit.get_opts(0)
+  local t = csv.index(vim.api.nvim_buf_get_lines(0, 0, 100, false), opts.delimiter)
+  return t.line_of[1] and csv.record(t, 1), opts.header
+end
+
+-- :Csvkit columns: every column's number (from 0) and name in a float, staged
+-- columns included in the view; <CR> copies a name.
+local function list_columns(args)
+  if split(args, 1)[1] then
+    error("csvkit: usage: columns", 0)
+  end
+  local names
+  if in_view() then
+    names = require("csvkit.view").names(0)
+  else
+    local row, header = first_record()
+    if not row then
+      error("csvkit: the buffer has no rows", 0)
+    end
+    names = header and row or vim.tbl_map(function()
+      return ""
+    end, row)
+  end
+  local entries, width = {}, #tostring(#names - 1)
+  for c, name in ipairs(names) do
+    name = vim.trim(name):gsub("\n", "⏎")
+    local index = tostring(c - 1)
+    entries[c] = name == "" and { index, index } or { ("%-" .. width .. "s  %s"):format(index, name), name }
+  end
+  require("csvkit.stats").open((" Columns (%d) "):format(#names), entries, width + 2)
 end
 
 -- :Csvkit view: the table of the buffer in a read-only buffer.
@@ -591,6 +626,7 @@ local SUBS = {
   addcol = addcol,
   delcol = delcol,
   apply = apply,
+  columns = list_columns,
   discard = discard,
   align = align,
   decimal = remember_opt("decimal"),
@@ -622,11 +658,10 @@ end)
 
 -- The current buffer's header names, spaces escaped for the command line.
 local function header_names()
-  local opts = csvkit.get_opts(0)
-  local row = opts.header and csv.parse(vim.api.nvim_buf_get_lines(0, 0, 100, false), opts.delimiter).rows[1]
+  local row, header = first_record()
   return vim.tbl_map(function(name)
     return (vim.trim(name):gsub(" ", "\\ "))
-  end, row or {})
+  end, header and row or {})
 end
 
 -- Candidates for the word after words (the words already typed).

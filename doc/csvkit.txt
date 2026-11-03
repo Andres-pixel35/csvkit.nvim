@@ -127,6 +127,13 @@ the file only by |:Csvkit-apply|.
     Move the cursor to {col} on the current row and scroll the window so the
     column starts at its left edge.
 
+                                                            *:Csvkit-columns*
+:Csvkit columns
+    List every column's number (from 0) and name in a window; in the table
+    view, staged columns too. Long names wrap under the name, and the window
+    is never taller than the screen (scroll it, or search with `/`). <CR>
+    copies the name on the cursor's line and closes; `q` or <Esc> closes.
+
                                                               *:Csvkit-stats*
 :[range]Csvkit stats [{col}] [{figure} ...] [n]
     Show the figures of {col} in a window: its type, rows, empty cells,

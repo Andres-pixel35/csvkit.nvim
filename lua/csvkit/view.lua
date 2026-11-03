@@ -669,6 +669,15 @@ function M.column(vbuf, name)
   return column(state_of(vbuf), name)
 end
 
+-- The names of the view's columns, staged ones included ("" for no name).
+function M.names(vbuf)
+  local state, out = state_of(vbuf), {}
+  for c = 1, state.ncols do
+    out[c] = state.t.h == 1 and state.hdr[c] or ""
+  end
+  return out
+end
+
 -- Moves the cursor to column name on its row (the header row when it is above
 -- it), with the column's left bar at the window's left edge.
 function M.goto_col(vbuf, name)

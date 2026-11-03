@@ -739,6 +739,59 @@ return {
     csvkit("filter clear")
   end,
 
+  ["columns: a float of every column's number and name; long names wrap under the name"] = function()
+    local long = ("x"):rep(200)
+    local header = { "id", "unit price", long, '"two', 'lines"', "" }
+    for c = 5, 11 do
+      header[#header + 1] = "c" .. c
+    end
+    local original = { table.concat(header, ",", 1, 4), table.concat(header, ",", 5), "1,2,3,4,5,6,7,8,9,10,11,12" }
+    local src = open(original)
+    csvkit("columns")
+    eq(vim.api.nvim_win_get_config(0).title, { { " Columns (12) " } })
+    eq(vim.list_slice(lines(), 1, 6), { "0   id", "1   unit price", "2   " .. long, "3   two⏎lines", "4", "5   c5" })
+    eq(lines()[12], "11  c11")
+    -- the 204-wide line takes 3 rows in the 76 wide float (rows 2 and 3 start 4 in)
+    eq(vim.api.nvim_win_get_width(0), vim.o.columns - 4)
+    eq({ vim.wo.wrap, vim.wo.breakindent, vim.wo.breakindentopt }, { true, true, "shift:4" })
+    eq(vim.api.nvim_win_get_height(0), 14)
+    local regs, setreg, notify = {}, vim.fn.setreg, vim.notify
+    vim.fn.setreg = function(reg, value)
+      regs[reg] = value
+    end
+    vim.notify = function() end
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    local ok, err = pcall(vim.api.nvim_feedkeys, vim.keycode("<CR>"), "mx", false)
+    vim.fn.setreg, vim.notify = setreg, notify
+    assert(ok, err)
+    eq(regs['"'], "unit price")
+    eq(vim.api.nvim_get_current_buf(), src)
+    eq(lines(), original)
+    eq(csvkit("columns x"), { { "csvkit: usage: columns", vim.log.levels.ERROR } })
+    eq(csvkit("columns", "1,2"), { { "csvkit: columns takes no range", vim.log.levels.ERROR } })
+    -- many columns and no header: numbers only; the float fits the screen and scrolls
+    open({ ("v,"):rep(999) .. "v" })
+    vim.b.csvkit = { header = false }
+    csvkit("columns")
+    eq(vim.api.nvim_win_get_config(0).title, { { " Columns (1000) " } })
+    eq({ lines()[1], lines()[1000], #lines() }, { "0", "999", 1000 })
+    eq(vim.api.nvim_win_get_height(0), vim.o.lines - 6)
+    vim.cmd("close")
+    open({})
+    eq(csvkit("columns"), { { "csvkit: the buffer has no rows", vim.log.levels.ERROR } })
+  end,
+
+  ["columns in the table view: its columns, staged ones included"] = function()
+    open({ "a,b", "1,2" })
+    csvkit("view")
+    csvkit("addcol new after b value z")
+    csvkit("delcol a")
+    csvkit("columns")
+    eq(lines(), { "0  b", "1  new" })
+    vim.cmd("close")
+    csvkit("discard")
+  end,
+
   ["undo keeps the last 3 sorts / addcols and what came after"] = function()
     -- vim.go: vim.o would copy a local undolevels to the global one
     local function step(cmd) -- each command is its own undo step
@@ -832,7 +885,7 @@ return {
     local function complete(line)
       return vim.fn.getcompletion(line, "cmdline")
     end
-    eq(complete("Csvkit "), { "addcol", "align", "apply", "decimal", "delcol", "discard", "filter", "goto", "hide", "preview", "restore", "row", "setcol", "sort", "stats", "thousands", "view" })
+    eq(complete("Csvkit "), { "addcol", "align", "apply", "columns", "decimal", "delcol", "discard", "filter", "goto", "hide", "preview", "restore", "row", "setcol", "sort", "stats", "thousands", "view" })
     eq(complete("Csvkit row "), { "add", "delete" })
     eq(complete("Csvkit row delete "), { "where", "hidden" })
     eq(complete("Csvkit row delete where "), { "name", [[unit\ price]], "age" })

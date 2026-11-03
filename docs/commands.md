@@ -61,6 +61,7 @@ Commands that take several columns (`delcol`, `hide`) also take **ranges**, `a-b
 | [`setcol {col} formula {expr}`](#setcol) | Replaces a column's values with a formula's | Staged |
 | [`delcol [{col} ...]`](#delcol) | Deletes columns | Staged |
 | [`goto {col}`](#goto) | Moves the cursor to a column | Same |
+| [`columns`](#columns) | Lists every column's number and name; `<CR>` copies a name | Same, with the staged columns |
 | [`stats [{col}] [{figure} ...] [n]`](#stats) | Shows a column's figures (all, or only `max`, `newest`, `common`, ...); `<CR>` copies one. A range limits it to those rows | Same, with the staged changes |
 | [`hide [{col} ...\|clear]`](#hide) | Not available | Hides columns from the view |
 | [`view`](#view-apply-discard) | Opens the table view | |
@@ -251,6 +252,38 @@ Deletes the columns from every row, header included, in one undo step. The other
 ```
 
 Moves the cursor to that column on the current row, and scrolls the window sideways so the column starts at its left edge. Useful in wide files.
+
+</details>
+
+## columns
+
+<details>
+<summary>Examples and details</summary>
+
+```vim
+:Csvkit columns
+```
+
+Opens a window listing every column: its number (from 0, as `{col}` takes it) and its name.
+
+```
+0   date
+1   unit price
+2   a very long name wraps here and goes on
+    under the name, not under the number
+...
+11  notes
+```
+
+- **Long names wrap**, and their next lines start under the name, so the numbers stay readable.
+- **Many columns**: the window is never taller than the screen; scroll it, or search it with `/`. The title says how many columns there are.
+- A cell spanning several lines in the header shows `⏎` where it breaks. A column with no name, or a file without a header row (`header = false`), shows the number only.
+- In the table view, columns added or deleted there (staged) count.
+
+| Key | Action |
+|---|---|
+| `<CR>` | Copy the name on the cursor's line (the number, for a column with no name) and close |
+| `q` or `<Esc>` | Close |
 
 </details>
 
