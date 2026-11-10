@@ -767,7 +767,7 @@ return {
     eq(regs['"'], "unit price")
     eq(vim.api.nvim_get_current_buf(), src)
     eq(lines(), original)
-    eq(csvkit("columns x"), { { "csvkit: usage: columns", vim.log.levels.ERROR } })
+    eq(csvkit("columns x"), { { "csvkit: usage: columns [dtype]", vim.log.levels.ERROR } })
     eq(csvkit("columns", "1,2"), { { "csvkit: columns takes no range", vim.log.levels.ERROR } })
     -- many columns and no header: numbers only; the float fits the screen and scrolls
     open({ ("v,"):rep(999) .. "v" })
@@ -779,6 +779,19 @@ return {
     vim.cmd("close")
     open({})
     eq(csvkit("columns"), { { "csvkit: the buffer has no rows", vim.log.levels.ERROR } })
+  end,
+
+  ["columns dtype: each column's type after its name, in the file and in the view"] = function()
+    open({ "a,b,3,", "1,x,TRUE,", "2,y,,", "1,,FALSE," })
+    csvkit("columns dtype")
+    eq(lines(), { "0  a  [number]", "1  b  [string]", "2  3  [bool]", "3  [string]" })
+    vim.cmd("close")
+    eq(csvkit("columns dtype x"), { { "csvkit: usage: columns [dtype]", vim.log.levels.ERROR } })
+    csvkit("view")
+    csvkit("columns dtype")
+    eq(lines(), { "0  a  [number]", "1  b  [string]", "2  3  [bool]", "3  [string]" })
+    vim.cmd("close")
+    csvkit("discard")
   end,
 
   ["columns in the table view: its columns, staged ones included"] = function()

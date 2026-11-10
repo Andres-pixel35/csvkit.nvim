@@ -61,7 +61,7 @@ Commands that take several columns (`delcol`, `hide`) also take **ranges**, `a-b
 | [`setcol {col} formula {expr}`](#setcol) | Replaces a column's values with a formula's | Staged |
 | [`delcol [{col} ...]`](#delcol) | Deletes columns | Staged |
 | [`goto {col}`](#goto) | Moves the cursor to a column | Same |
-| [`columns`](#columns) | Lists every column's number and name; `<CR>` copies a name | Same, with the staged columns |
+| [`columns [dtype]`](#columns) | Lists every column's number and name (and with `dtype`, its type); `<CR>` copies a name | Same, with the staged columns |
 | [`stats [{col}] [{figure} ...] [n]`](#stats) | Shows a column's figures (all, or only `max`, `newest`, `common`, ...); `<CR>` copies one. A range limits it to those rows | Same, with the staged changes |
 | [`hide [{col} ...\|clear]`](#hide) | Not available | Hides columns from the view |
 | [`view`](#view-apply-discard) | Opens the table view | |
@@ -261,7 +261,7 @@ Moves the cursor to that column on the current row, and scrolls the window sidew
 <summary>Examples and details</summary>
 
 ```vim
-:Csvkit columns
+:Csvkit columns [dtype]
 ```
 
 Opens a window listing every column: its number (from 0, as `{col}` takes it) and its name.
@@ -279,6 +279,7 @@ Opens a window listing every column: its number (from 0, as `{col}` takes it) an
 - **Many columns**: the window is never taller than the screen; scroll it, or search it with `/`. The title says how many columns there are.
 - A cell spanning several lines in the header shows `⏎` where it breaks. A column with no name, or a file without a header row (`header = false`), shows the number only.
 - In the table view, columns added or deleted there (staged) count.
+- **`dtype`** adds each column's type after its name: `number`, `date`, `bool` or `string` (see [Value types](configuration.md#value-types)). It reads every row (in the table view, the rows shown), so on a big file it takes a moment and briefly holds the file's cells in memory.
 
 | Key | Action |
 |---|---|

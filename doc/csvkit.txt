@@ -128,9 +128,10 @@ the file only by |:Csvkit-apply|.
     column starts at its left edge.
 
                                                             *:Csvkit-columns*
-:Csvkit columns
+:Csvkit columns [dtype]
     List every column's number (from 0) and name in a window; in the table
-    view, staged columns too. Long names wrap under the name, and the window
+    view, staged columns too. With dtype, each column's type (number, date,
+    bool or string) follows its name; every row is read. Long names wrap under the name, and the window
     is never taller than the screen (scroll it, or search with `/`). <CR>
     copies the name on the cursor's line and closes; `q` or <Esc> closes.
 

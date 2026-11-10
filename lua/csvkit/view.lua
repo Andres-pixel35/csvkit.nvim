@@ -637,6 +637,8 @@ end
 local function column(state, name)
   if not name then
     return cursor_col(state)
+  elseif type(name) == "number" then -- a 0-based number, never a header's name
+    return name + 1
   end
   for c, h in ipairs(state.t.h == 1 and state.hdr or {}) do
     if types.trim(h) == name then

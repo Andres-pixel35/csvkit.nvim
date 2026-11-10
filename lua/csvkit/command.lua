@@ -4,6 +4,7 @@
 local csv = require("csvkit.csv")
 local csvkit = require("csvkit")
 local edit = require("csvkit.edit")
+local types = require("csvkit.types")
 
 local M = {}
 
@@ -554,11 +555,31 @@ local function first_record()
   return t.line_of[1] and csv.record(t, 1), opts.header
 end
 
--- :Csvkit columns: every column's number (from 0) and name in a float, staged
--- columns included in the view; <CR> copies a name.
+-- The type of every column (types.infer_column): in the view, over the rows
+-- shown; else over every data row, with the columns read in one pass (the
+-- file's cells are in memory while it runs, so only dtype pays for it).
+local function column_types(ncols)
+  local out, view = {}, in_view() and require("csvkit.view")
+  local cols = not view and csv.columns(edit.read(0), csvkit.get_opts(0).header and 2 or 1)
+  for c = 1, ncols do
+    local cells, _, opts
+    if view then
+      cells, _, opts = view.shown_cells(0, c - 1)
+    else
+      cells, opts = cols[c] or {}, csvkit.get_opts(0)
+    end
+    out[c] = types.infer_column(cells, opts)
+  end
+  return out
+end
+
+-- :Csvkit columns [dtype]: every column's number (from 0) and name in a float,
+-- staged columns included in the view; with dtype, its type after the name;
+-- <CR> copies a name.
 local function list_columns(args)
-  if split(args, 1)[1] then
-    error("csvkit: usage: columns", 0)
+  local w = split(args, 2)
+  if #w > 1 or (w[1] and w[1] ~= "dtype") then
+    error("csvkit: usage: columns [dtype]", 0)
   end
   local names
   if in_view() then
@@ -572,11 +593,13 @@ local function list_columns(args)
       return ""
     end, row)
   end
+  local kinds = w[1] and column_types(#names)
   local entries, width = {}, #tostring(#names - 1)
   for c, name in ipairs(names) do
     name = vim.trim(name):gsub("\n", "⏎")
     local index = tostring(c - 1)
-    entries[c] = name == "" and { index, index } or { ("%-" .. width .. "s  %s"):format(index, name), name }
+    local text = name == "" and index or ("%-" .. width .. "s  %s"):format(index, name)
+    entries[c] = { kinds and ("%s  [%s]"):format(text, kinds[c]) or text, name ~= "" and name or index }
   end
   require("csvkit.stats").open((" Columns (%d) "):format(#names), entries, width + 2)
 end
@@ -689,6 +712,8 @@ local function candidates(words)
       return words[2] == "add" and { "above", "below" } or words[2] == "delete" and { "where", "hidden" } or {}
     end
     return n == 1 and { "add", "delete" } or words[3] == "where" and header_names() or {}
+  elseif sub == "columns" then
+    return n == 1 and { "dtype" } or {}
   elseif sub == "restore" then
     return n == 1 and RESTORE_MODES or {}
   elseif sub == "apply" then
