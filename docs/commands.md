@@ -133,7 +133,7 @@ Filters **hide** rows; they never delete anything. `:w` still saves every row.
 - There is one condition at a time: a new one replaces the previous one.
 - If the formula has a mistake, or gives no TRUE/FALSE on any row (`price + 1`), you get an error and the filters stay as they were.
 
-**Combining.** Filters on different columns and the condition all apply together (AND): a row stays visible only if it passes every one. `:Csvkit filter clear` removes them all.
+**Combining.** Filters on different columns and the condition all apply together (AND): a row stays visible only if it passes every one. `:Csvkit filter clear` removes them all. The value list of a column counts only the rows the *other* filters leave visible (the column's own filter is ignored, so you can tick values back).
 
 The header row is never hidden. Filters follow your edits: after a sort or an edit, they are applied again. How hidden rows are shown is described in [Views: filtering](views.md#filtering).
 

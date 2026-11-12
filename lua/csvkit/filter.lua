@@ -55,13 +55,15 @@ end
 
 -- The data rows that fail some column's filter or the expression, as a set.
 -- Also returns why no row could be evaluated with the expression, if so;
--- raises when it does not compile.
-local function hidden(t, state)
+-- raises when it does not compile. skip: a column whose filter is ignored.
+local function hidden(t, state, skip)
   local hide, err = {}, nil
   for c, allowed in pairs(state.cols) do
-    for i, cell in ipairs(csv.column(t, c, t.h + 1)) do
-      if not allowed[types.trim(cell)] then
-        hide[i] = true
+    if c ~= skip then
+      for i, cell in ipairs(csv.column(t, c, t.h + 1)) do
+        if not allowed[types.trim(cell)] then
+          hide[i] = true
+        end
       end
     end
   end
@@ -82,6 +84,22 @@ end
 function M.hidden(buf, t)
   local state = M.states[buf]
   return state and (hidden(t, state))
+end
+
+-- The cells of column col on the rows the other columns' filters and the
+-- expression leave visible (all of them with no filter).
+local function others_cells(t, col)
+  local cells, state = csv.column(t, col, t.h + 1), M.states[t.buf]
+  if not state then
+    return cells
+  end
+  local hide, out = hidden(t, state, col), {}
+  for i, cell in ipairs(cells) do
+    if not hide[i] then
+      out[#out + 1] = cell
+    end
+  end
+  return out
 end
 
 -- The runs of lines to hide: { first line, last line, rows } for each stretch
@@ -320,8 +338,9 @@ end
 -- applies the checked ones. t is edit.read's table for the buffer. target is
 -- { current, cells, name, apply(col, allowed) } for a filter kept elsewhere (the
 -- view buffer, whose cells may be staged edits); by default the buffer's folds.
+-- The values counted are those on the rows the other filters leave visible.
 function M.pick(t, col, target)
-  local values = target and M.counts(target.cells) or M.values(t, col)
+  local values = target and M.counts(target.cells) or M.counts(others_cells(t, col))
   if #values == 0 then
     error(("csvkit: no values to filter in column %d"):format(col - 1), 0)
   end

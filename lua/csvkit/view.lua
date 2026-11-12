@@ -199,9 +199,10 @@ end
 -- without the rows some column's filter or the expression does not allow (a
 -- new row is always shown). Also returns why no row could be evaluated with
 -- the expression, if so. An expression that no longer compiles is removed.
-local function order(state)
+-- skip: a column whose filter is ignored (and state.keep left alone).
+local function order(state, skip)
   local perm, recs = {}, state.recs
-  for c in pairs(state.keep) do -- a column no longer sorted or filtered
+  for c in pairs(skip and {} or state.keep) do -- a column no longer sorted or filtered
     if not ((state.sort and state.sort.col == c) or state.cols[c]) then
       state.keep[c] = nil
     end
@@ -215,9 +216,11 @@ local function order(state)
   end
   local hide, err = {}, nil
   for c, allowed in pairs(state.cols) do
-    for i, cell in ipairs(cells(state, c)) do
-      if not allowed[types.trim(cell)] then
-        hide[i] = true
+    if c ~= skip then
+      for i, cell in ipairs(cells(state, c)) do
+        if not allowed[types.trim(cell)] then
+          hide[i] = true
+        end
       end
     end
   end
@@ -738,9 +741,13 @@ end
 function M.filter(vbuf, name)
   local state = state_of(vbuf)
   local col = column(state, name)
+  local all, shown = cells(state, col), {}
+  for _, i in ipairs((order(state, col))) do
+    shown[#shown + 1] = all[i]
+  end
   require("csvkit.filter").pick(state.t, col, {
     current = state.cols[col],
-    cells = cells(state, col),
+    cells = shown,
     name = name_of(state, col),
     apply = function(c, allowed)
       M.set_filter(state.vbuf, c, allowed)

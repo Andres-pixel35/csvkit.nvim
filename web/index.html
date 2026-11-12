@@ -115,10 +115,11 @@ function cell(data, r, c) {
 // state = { filters: Map(col -> Set of trimmed values that stay), sort: { col, desc } | null,
 // match: "1" or "0" per row, Neovim's answer for the filter expression, or null }.
 // Empties go last both ways; ties keep the file's order.
-function order(data, state) {
+// skip: a column whose filter is ignored; the rows then come unsorted.
+function order(data, state, skip) {
   const none = [], m = state.match;
   // each filter reads its column's list directly
-  const filters = [...state.filters].map(([c, set]) => [data.cells[c] || none, set]);
+  const filters = [...state.filters].filter(([c]) => c !== skip).map(([c, set]) => [data.cells[c] || none, set]);
   const idx = [];
   for (let i = 0; i < data.n; i++) {
     if (m && m.charCodeAt(i) !== 49) continue; // not "1"
@@ -130,7 +131,7 @@ function order(data, state) {
     if (ok) idx.push(i);
   }
   const s = state.sort;
-  if (!s) return idx;
+  if (!s || skip !== undefined) return idx;
   const col = data.cells[s.col] || none, raw = data.keys[s.col + 1];
   const text = (i) => (col[i] === undefined ? "" : col[i]);
   const full = [], empty = [];
@@ -208,10 +209,12 @@ function chars(data, c) {
   return data.max_width ? Math.min(n, data.max_width) : n;
 }
 
-// [{ v, n }] of the trimmed values of a column, most frequent first.
-function uniques(data, c) {
+// [{ v, n }] of the trimmed values of a column (over the rows numbered in
+// rows, default all), most frequent first.
+function uniques(data, c, rows) {
   const count = new Map(), col = data.cells[c] || [];
-  for (let i = 0; i < data.n; i++) {
+  for (let k = 0, m = rows ? rows.length : data.n; k < m; k++) {
+    const i = rows ? rows[k] : k;
     const v = col[i] === undefined ? "" : col[i].trim();
     count.set(v, (count.get(v) || 0) + 1);
   }
@@ -410,7 +413,7 @@ hd.addEventListener("click", (e) => {
 function openMenu(c, anchor) {
   if (!menu.hidden && mcol === c) return closeMenu();
   mcol = c;
-  mall = uniques(data, c);
+  mall = uniques(data, c, order(data, state, c)); // the rows the other filters leave
   const kept = state.filters.get(c);
   msel = new Set(kept || mall.map((u) => u.v));
   $("q").value = "";

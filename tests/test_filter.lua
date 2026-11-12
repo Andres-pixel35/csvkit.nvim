@@ -383,6 +383,18 @@ return {
     eq(vim.api.nvim_get_current_buf(), buf)
   end,
 
+  ["picker: counts only the rows the other columns' filters leave visible, not its own"] = function()
+    local buf = open(PEOPLE)
+    filter.set(buf, 2, set({ "Madrid" }))
+    local t = require("csvkit.edit").read(buf)
+    filter.pick(t, 1)
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    eq(#lines < #require("csvkit.filter").values(t, 1), true)
+    press("q")
+    filter.pick(t, 2) -- its own filter is ignored: every city is listed
+    eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), { "[ ] Bogota (2)", "[x] Madrid (2)", "[ ] Paris (1)" })
+  end,
+
   ["picker: <Space> and <Tab> toggle the line, <CR> applies"] = function()
     local buf = open(PEOPLE)
     filter.pick(require("csvkit.edit").read(buf), 2)

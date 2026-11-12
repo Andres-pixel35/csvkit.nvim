@@ -643,13 +643,13 @@ return {
     eq(vim.fn.foldclosed(2), -1)
   end,
 
-  ["filters in two columns are ANDed, and the picker shows the view's current filter"] = function()
+  ["filters in two columns are ANDed, and the picker shows the view's current filter, counted over the other filters' rows"] = function()
     local _, vbuf = open_view(PEOPLE)
     view.set_filter(vbuf, 2, { Madrid = true })
     view.set_filter(vbuf, 3, { ["25"] = true, ["30"] = true })
     eq(records(vbuf), { "Luis Madrid 25" })
     vim.cmd("Csvkit filter city")
-    eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), { "[x] Madrid (2)", "[ ] Bogota (1)", "[ ] Paris (1)" })
+    eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), { "[ ] Bogota (1)", "[x] Madrid (1)" }) -- counts follow the age filter
     press("q")
   end,
 

@@ -34,6 +34,9 @@ assert.deepStrictEqual(o({ filters: new Map([[2, new Set()]]), sort: null }), []
 assert.deepStrictEqual(o({ filters: new Map([[2, new Set(["Paris"])]]), sort: { col: 1, desc: false } }), [4, 0, 2]);
 // uniques: by count, then value; blank as ""
 assert.deepStrictEqual(uniques(data, 2), [{ v: "Paris", n: 3 }, { v: "", n: 1 }, { v: "Madrid", n: 1 }]);
+// counts over the rows the other filters leave; the column's own filter is ignored
+const cityOnly = { filters: new Map([[2, new Set(["Paris"])], [1, new Set(["9"])]]), sort: null };
+assert.deepStrictEqual(uniques(data, 2, order(data, cityOnly, 2)), [{ v: "Madrid", n: 1 }, { v: "Paris", n: 1 }]);
 assert.deepStrictEqual(uniques(data, 1)[0], { v: "9", n: 2 });
 // ragged rows: a missing cell is blank
 assert.deepStrictEqual(uniques({ cols: [{}, {}], n: 2, cells: byColumn([["a"], ["a", "b"]]), keys: {} }, 1), [{ v: "", n: 1 }, { v: "b", n: 1 }]);
