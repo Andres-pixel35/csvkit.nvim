@@ -95,11 +95,12 @@ In the table view, nothing you do changes the file right away. Changes are **sta
 | Add a column | `:Csvkit addcol ...` (its formula may use other staged columns) |
 | Replace a column's values | `:Csvkit setcol {col} formula {expr}` |
 | Delete columns | `:Csvkit delcol {col} ...` |
+| Move a column | `:Csvkit mv col {col} {index}` (`-1` is the end) |
 | See the row in the file | `<CR>`: jumps to that row in the file's buffer |
 | See all of the first line | `<CR>` on it |
 | See a column's figures | `:Csvkit stats {col}`: max, newest date, most common value, ... over the rows shown, staged changes included |
 | **Write the changes to the file** | `:Csvkit apply` (also writes the sort order: `:Csvkit apply sort`) |
-| **Throw the changes away** | `:Csvkit discard` |
+| **Throw everything away** | `:Csvkit discard`: staged changes, sort, filters and hidden columns |
 
 </details>
 
@@ -113,7 +114,7 @@ In the table view, nothing you do changes the file right away. Changes are **sta
 - **Filters and hidden columns are never applied**: hidden rows and columns are still written. To delete rows or columns, use `row delete` and `delcol`.
 - Rows you didn't touch keep their exact text. Edited and new rows are written in the file's quoting style. When a column is deleted in the view, every row is written again in that style.
 - `apply` refuses if nothing is staged, or if the file's buffer was edited after the view read it. Run `:Csvkit discard` to throw the staged changes away and read the file again.
-- `:Csvkit discard` drops the staged changes and the sort, and keeps the filters (`:Csvkit filter clear` removes them).
+- `:Csvkit discard` drops the staged changes, the sort, the filters and the hidden columns.
 
 </details>
 

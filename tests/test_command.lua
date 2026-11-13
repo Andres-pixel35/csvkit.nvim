@@ -893,12 +893,55 @@ return {
     eq(csvkit(""), { { 'csvkit: unknown subcommand ""', vim.log.levels.ERROR } })
   end,
 
+  ["mv col moves a column in every record, header too, in one undo step; the rest keeps its text"] = function()
+    local original = { 'name,"city, x",age', '"Ana",Bogota,30', 'Luis,"two', 'lines",25', "Mia", "Eva,Lima,41\r", "" }
+    for args, want in pairs({
+      ["name 2"] = { '"city, x",age,name', "Bogota,30,\"Ana\"", '"two', 'lines",25,Luis', ",,Mia", "Lima,41,Eva\r", "" },
+      ["name -1"] = { '"city, x",age,name', "Bogota,30,\"Ana\"", '"two', 'lines",25,Luis', ",,Mia", "Lima,41,Eva\r", "" },
+      ["name 99"] = { '"city, x",age,name', "Bogota,30,\"Ana\"", '"two', 'lines",25,Luis', ",,Mia", "Lima,41,Eva\r", "" },
+      ["age 0"] = { 'age,name,"city, x"', '30,"Ana",Bogota', '25,Luis,"two', 'lines"', ",Mia,", "41,Eva,Lima\r", "" },
+      ["age 1"] = { 'name,age,"city, x"', '"Ana",30,Bogota', 'Luis,25,"two', 'lines"', "Mia,,", "Eva,41,Lima\r", "" },
+      ["1 -2"] = original, -- already second to last
+    }) do
+      open(original)
+      csvkit("mv col " .. args)
+      eq(lines(), want)
+      if want ~= original then
+        undo_restores(original)
+      end
+    end
+  end,
+
+  ["mv col takes a name or a number, writes nothing when the column stays, and checks its words"] = function()
+    open(SIMPLE)
+    eq(csvkit("mv col 0 -3"), {})
+    eq(lines(), SIMPLE)
+    csvkit("mv col 2 0")
+    eq(lines()[1], "city,name,age")
+    eq(csvkit("mv col nope 1"), { { 'csvkit: no column "nope"', vim.log.levels.ERROR } })
+    eq(csvkit("mv col 0 -9"), { { "csvkit: no position -9 among 3 columns", vim.log.levels.ERROR } })
+    for _, args in ipairs({ "", "col", "col 0", "col 0 x", "0 1", "col 0 1 2" }) do
+      eq(csvkit("mv " .. args), { { "csvkit: usage: mv col {col} {index}", vim.log.levels.ERROR } })
+    end
+  end,
+
+  ["completion in the view offers the view's columns, not its first line"] = function()
+    open({ "name,unit price,age", "a,1,2" })
+    vim.cmd("Csvkit view")
+    vim.cmd("Csvkit addcol new value 1")
+    vim.cmd("Csvkit delcol age")
+    eq(require("csvkit.command").complete("", "Csvkit filter ", 14), { "name", "new", "unit\\ price", "clear" })
+    eq(require("csvkit.command").complete("", "Csvkit mv col ", 14), { "name", "new", "unit\\ price" })
+    eq(require("csvkit.command").complete("", "Csvkit mv ", 10), { "col" })
+    vim.cmd("bdelete")
+  end,
+
   ["completion"] = function()
     open({ "name,unit price,age", "a,1,2" })
     local function complete(line)
       return vim.fn.getcompletion(line, "cmdline")
     end
-    eq(complete("Csvkit "), { "addcol", "align", "apply", "columns", "decimal", "delcol", "discard", "filter", "goto", "hide", "preview", "restore", "row", "setcol", "sort", "stats", "thousands", "view" })
+    eq(complete("Csvkit "), { "addcol", "align", "apply", "columns", "decimal", "delcol", "discard", "filter", "goto", "hide", "mv", "preview", "restore", "row", "setcol", "sort", "stats", "thousands", "view" })
     eq(complete("Csvkit row "), { "add", "delete" })
     eq(complete("Csvkit row delete "), { "where", "hidden" })
     eq(complete("Csvkit row delete where "), { "name", [[unit\ price]], "age" })
@@ -911,6 +954,9 @@ return {
     eq(complete("Csvkit so"), { "sort" })
     eq(complete("Csvkit sort "), { "name", [[unit\ price]], "age", "asc", "desc", "num", "str", "date" })
     eq(complete("Csvkit sort a"), { "age", "asc" })
+    eq(complete("Csvkit SO"), { "sort" })
+    eq(complete("Csvkit sort NA"), { "name" })
+    eq(complete("Csvkit sort A"), { "age", "asc" })
     eq(complete([[Csvkit sort unit\ p]]), { [[unit\ price]] })
     eq(complete("Csvkit row add "), { "above", "below" })
     eq(complete("Csvkit addcol x "), { "after", "before", "value", "formula", "fill" })

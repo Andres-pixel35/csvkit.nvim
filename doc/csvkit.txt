@@ -122,6 +122,12 @@ the file only by |:Csvkit-apply|.
     Delete columns from every row, header included: names, numbers and
     ranges (`:Csvkit delcol 2-5 notes`). The other fields keep their text.
 
+                                                                 *:Csvkit-mv*
+:Csvkit mv col {col} {index}
+    Move column {col} to place {index} (from 0; -1 is the last, a number
+    past the end too) in every row, header included. The other fields keep
+    their text. Staged in the table view.
+
                                                                *:Csvkit-goto*
 :Csvkit goto {col}
     Move the cursor to {col} on the current row and scroll the window so the
@@ -172,7 +178,8 @@ the file only by |:Csvkit-apply|.
     the file's buffer.
                                                             *:Csvkit-discard*
 :Csvkit discard
-    Table view: throw away the staged changes and the sort.
+    Table view: throw away the staged changes, the sort, the filters and
+    the hidden columns.
 
                                                               *:Csvkit-align*
 :Csvkit align [on|off]

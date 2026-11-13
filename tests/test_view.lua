@@ -174,14 +174,7 @@ return {
     eq(records(vbuf), { "Ana Bogota 30 60", "" })
     vim.cmd("Csvkit filter double > 50") -- worked out again: the new row still shows
     eq(records(vbuf), { "Ana Bogota 30 60", "" })
-    -- discard drops the staged column, and the expression that needs it
-    local notes, notify = {}, vim.notify
-    vim.notify = function(msg)
-      notes[#notes + 1] = msg
-    end
-    vim.cmd("Csvkit discard")
-    vim.notify = notify
-    eq(notes, { 'csvkit: filter double > 50 removed: unknown column "double" at position 1' })
+    vim.cmd("Csvkit discard") -- drops the staged column and the expression too, silently
     eq(lines(vbuf)[1], " 4 of 4 rows")
   end,
 
@@ -336,8 +329,9 @@ return {
     at(vbuf, 5, 1)
     vim.cmd("Csvkit addcol z value 1") -- after name: age is column 3 now
     eq(lines(vbuf)[3], "│ 0 name │ 1 z │ 2 city │")
-    vim.cmd("Csvkit discard")
-    eq(lines(vbuf)[3], "│ 0 name │ 1 city │")
+    vim.cmd("Csvkit discard") -- the hidden column is shown again too
+    eq(lines(vbuf)[3], "│ 0 name │ 1 city │ 2 age │")
+    vim.cmd("Csvkit hide age")
     vim.cmd("Csvkit addcol z value 1")
     vim.cmd("Csvkit apply")
     eq(lines(src)[2], "Ana,1,Bogota,30")
@@ -373,8 +367,8 @@ return {
     eq(lines(vbuf)[3], "│ 0 city │")
     eq(lines(vbuf)[1], " 2 of 4 rows │ filter age: 30, 41 │ sort age ↓ │ hidden age │ staged: 1 deleted column (:Csvkit apply | discard)")
     vim.cmd("Csvkit discard")
-    eq(lines(vbuf)[3], "│ 0 name │ 1 city │")
-    eq(records(vbuf), { "Ana Bogota", "Eva Madrid" })
+    eq(lines(vbuf)[3], "│ 0 name │ 1 city │ 2 age │")
+    eq(records(vbuf), { "Ana Bogota 30", "Luis Madrid 25", "Mia Paris 9", "Eva Madrid 41" })
     eq(lines(src), PEOPLE)
   end,
 
@@ -891,9 +885,9 @@ return {
     eq(records(vbuf), { "Eva 1 Madrid 41" })
     view.set_filter(vbuf, 3, nil)
     view.set_filter(vbuf, 2, { ["1"] = true }) -- on the staged column
-    vim.cmd("Csvkit discard") -- its filter goes; age's goes back to its place in the source
-    eq(records(vbuf), { "Ana Bogota 30", "Eva Madrid 41" })
-    eq(lines(vbuf)[1], " 2 of 4 rows │ filter age: 30, 41")
+    vim.cmd("Csvkit discard") -- every filter goes
+    eq(records(vbuf), { "Ana Bogota 30", "Luis Madrid 25", "Mia Paris 9", "Eva Madrid 41" })
+    eq(lines(vbuf)[1], " 4 of 4 rows")
   end,
 
   ["addcol answered from a prompt float stages after the view's cursor column"] = function()
@@ -1224,14 +1218,57 @@ return {
     eq(vbuf and true, true)
   end,
 
-  ["discard drops the staged edits and the sort; the filters stay"] = function()
+  ["mv col is staged: sort, filters, hidden and staged columns follow their column; apply writes it; discard undoes it"] = function()
+    local src, vbuf = open_view(PEOPLE)
+    vim.cmd("Csvkit sort age desc")
+    view.set_filter(vbuf, 2, { Madrid = true })
+    vim.cmd("Csvkit hide name")
+    vim.cmd("Csvkit mv col name -1")
+    eq(lines(vbuf)[3], "│ 0 city │ 1 age │")
+    eq(lines(vbuf)[1], " 2 of 4 rows │ filter city: Madrid │ sort age ↓ │ hidden name │ staged: 1 moved column (:Csvkit apply | discard)")
+    eq(records(vbuf), { "Madrid 41", "Madrid 25" })
+    vim.cmd("Csvkit mv col age 0")
+    eq(lines(vbuf)[3], "│ 0 age │ 1 city │")
+    vim.cmd("Csvkit mv col city 9") -- past the end: last
+    eq(lines(vbuf)[3], "│ 0 age │ 2 city │") -- name is still hidden, now between them
+    vim.cmd("Csvkit hide clear")
+    eq(lines(vbuf)[3], "│ 0 age │ 1 name │ 2 city │")
+    eq(lines(src), PEOPLE)
+    vim.cmd("Csvkit apply")
+    eq(lines(src), { "age,name,city", "30,Ana,Bogota", "25,Luis,Madrid", "9,Mia,Paris", "41,Eva,Madrid" })
+    eq(lines(vbuf)[1], " 2 of 4 rows │ filter city: Madrid │ sort age ↓")
+    vim.cmd("Csvkit mv col name 0")
+    vim.cmd("Csvkit discard")
+    eq(lines(vbuf)[3], "│ 0 age │ 1 name │ 2 city │")
+  end,
+
+  ["mv col with staged and deleted columns and edited rows: apply writes every row in the new order"] = function()
+    local src, vbuf = open_view(PEOPLE)
+    vim.cmd("Csvkit addcol z value 1") -- after name
+    vim.cmd("Csvkit delcol city")
+    at(vbuf, 5, 1)
+    vim.cmd("Csvkit row add below")
+    vim.cmd("Csvkit mv col age 0")
+    eq(records(vbuf)[1], "30 Ana 1")
+    vim.cmd("Csvkit delcol z")
+    vim.cmd("Csvkit addcol w value 2")
+    vim.cmd("Csvkit mv col 0 -1")
+    eq(lines(vbuf)[3], "│ 0 w │ 1 name │ 2 age │")
+    vim.cmd("Csvkit apply")
+    eq(lines(src), { "w,name,age", "2,Ana,30", "2,,", "2,Luis,25", "2,Mia,9", "2,Eva,41" })
+  end,
+
+  ["discard drops the staged edits, the sort, the filters (expression too) and the hidden columns"] = function()
     local src, vbuf = open_view(PEOPLE)
     vim.cmd("Csvkit sort age desc")
     view.set_filter(vbuf, 2, { Madrid = true })
     vim.cmd("Csvkit addcol z value 1")
+    vim.cmd("Csvkit hide age")
+    vim.cmd("Csvkit filter age > 10")
     vim.cmd("Csvkit discard")
-    eq(lines(vbuf)[1], " 2 of 4 rows │ filter city: Madrid")
-    eq(records(vbuf), { "Luis Madrid 25", "Eva Madrid 41" })
+    eq(lines(vbuf)[1], " 4 of 4 rows")
+    eq(lines(vbuf)[3], "│ 0 name │ 1 city │ 2 age │")
+    eq(records(vbuf), { "Ana Bogota 30", "Luis Madrid 25", "Mia Paris 9", "Eva Madrid 41" })
     eq(lines(src), PEOPLE)
   end,
 
