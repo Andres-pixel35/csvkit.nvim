@@ -132,6 +132,13 @@ function M.number_col(word, n)
   return i and i >= 1 and i <= n and i or nil
 end
 
+-- The 1-based column a move to index (from 0; negative from the end, -1 the
+-- last) among n columns puts a column at: past the end is the last.
+function M.target(index, n)
+  local c = index < 0 and n + index + 1 or math.min(index + 1, n)
+  return c >= 1 and c or error(("csvkit: no position %d among %d columns"):format(index, n), 0)
+end
+
 local KEEP = 3 -- csvkit edits that replace lines (sort, addcol) undo keeps
 
 -- The seqs of buf's undo entries (a set), alternate branches included.
@@ -337,6 +344,58 @@ function M.delete_columns(t, cols)
         n = n + 1
         out[n] = l
       end
+    end
+  end
+  write(t, { 1, t.last }, out)
+end
+
+-- Record r of t with field `from` moved to place `to`: only the fields between
+-- them are touched, as text, so quoting stays. A record shorter than the
+-- columns involved is padded with empty fields first.
+local function moved_record(t, r, from, to)
+  local lines, delim, dlen = t.lines, t.delim, #t.delim
+  local first, last = t.line_of[r], M.last_line(t, r)
+  -- the record as one text; at[l] = where line l starts in it, minus 1
+  local text, at = lines[first], { [first] = 0 }
+  for l = first + 1, last do
+    at[l] = #text + 1
+    text = text .. "\n" .. lines[l]
+  end
+  local lo, hi = math.min(from, to), math.max(from, to)
+  local ei, ep, n = csv.field_end(t, r, hi)
+  local stop = at[ei] + ep - 1 -- the last character of field hi, or of the record
+  if n < hi then
+    local pad = delim .. csv.serialize_field("", delim, t.quote_all)
+    text = text:sub(1, stop) .. pad:rep(hi - n) .. text:sub(stop + 1)
+    local padded = csv.index(vim.split(text, "\n", { plain = true }), delim)
+    return moved_record(padded, 1, from, to)
+  end
+  local si, sb = M.field_start(t, r, lo)
+  local a = at[si] + sb + 1 -- where field lo starts
+  if from < to then -- the moved field goes after the ones between
+    local fi, fp = csv.field_end(t, r, from)
+    local cut = at[fi] + fp - 1
+    return text:sub(1, a - 1) .. text:sub(cut + 1 + dlen, stop) .. delim .. text:sub(a, cut) .. text:sub(stop + 1)
+  end
+  local hi_i, hi_b = M.field_start(t, r, hi)
+  local b = at[hi_i] + hi_b + 1 -- where field hi starts
+  return text:sub(1, a - 1) .. text:sub(b, stop) .. delim .. text:sub(a, b - 1 - dlen) .. text:sub(stop + 1)
+end
+
+-- Moves column `from` to place `to` (1-based, in the final order) in every
+-- record, the header too, in one write.
+function M.move_column(t, from, to)
+  local out, n = {}, 0
+  for r = 1, #t.line_of do
+    local text = moved_record(t, r, from, to)
+    if text:find("\n", 1, true) then
+      for _, l in ipairs(vim.split(text, "\n", { plain = true })) do
+        n = n + 1
+        out[n] = l
+      end
+    else
+      n = n + 1
+      out[n] = text
     end
   end
   write(t, { 1, t.last }, out)

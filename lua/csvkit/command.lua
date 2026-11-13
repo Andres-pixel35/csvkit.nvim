@@ -474,6 +474,26 @@ local function delcol(args)
   end) or { edit.cursor_col(t, vim.api.nvim_win_get_cursor(0)) })
 end
 
+-- :Csvkit mv col {col} {index}: move a column to place index (from 0; -1 is
+-- the last, past the end too); staged in the view.
+local function mv(args)
+  local w = split(args, math.huge)
+  local index = w[3] and tonumber(w[3]:match("^%-?%d+$"))
+  if #w ~= 3 or w[1] ~= "col" or not index then
+    error("csvkit: usage: mv col {col} {index}", 0)
+  end
+  if in_view() then
+    local view = require("csvkit.view")
+    return view.mv(0, view.column(0, w[2]), index)
+  end
+  edit.check_modifiable(0)
+  local t = edit.read(0)
+  local from, to = edit.col_index(t, w[2]), edit.target(index, #t.first)
+  if from ~= to then
+    edit.move_column(t, from, to)
+  end
+end
+
 -- :Csvkit hide [{col} ...|clear]: hide columns of the view (default: the
 -- cursor's), as delcol takes them, or show them all again.
 local function hide(args)
@@ -656,6 +676,7 @@ local SUBS = {
   filter = filter,
   ["goto"] = goto_col,
   hide = hide,
+  mv = mv,
   preview = preview,
   restore = restore,
   row = row,
@@ -681,10 +702,18 @@ end)
 
 -- The current buffer's header names, spaces escaped for the command line.
 local function header_names()
-  local row, header = first_record()
+  local names
+  if in_view() then
+    names = require("csvkit.view").names(0) -- the buffer's first line is not the header
+  else
+    local row, header = first_record()
+    names = header and row or {}
+  end
   return vim.tbl_map(function(name)
     return (vim.trim(name):gsub(" ", "\\ "))
-  end, header and row or {})
+  end, vim.tbl_filter(function(name)
+    return vim.trim(name) ~= ""
+  end, names))
 end
 
 -- Candidates for the word after words (the words already typed).
@@ -703,6 +732,8 @@ local function candidates(words)
     return n == 1 and vim.list_extend(header_names(), figures) or vim.list_slice(figures)
   elseif sub == "delcol" then
     return header_names()
+  elseif sub == "mv" then
+    return n == 1 and { "col" } or n == 2 and header_names() or {}
   elseif sub == "hide" then
     return n == 1 and vim.list_extend(header_names(), { "clear" }) or header_names()
   elseif sub == "filter" then
@@ -743,8 +774,9 @@ function M.complete(arglead, cmdline, pos)
   -- word with a capital: a user command's name starts with one, they never do
   local before = cmdline:sub(1, pos):gsub("^[^%u]*%u%S*", "", 1)
   local words = split(before:sub(1, #before - #arglead), math.huge)
+  local lead = arglead:lower()
   return vim.tbl_filter(function(c)
-    return vim.startswith(c, arglead)
+    return vim.startswith(c:lower(), lead)
   end, candidates(words))
 end
 

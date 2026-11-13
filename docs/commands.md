@@ -60,13 +60,14 @@ Commands that take several columns (`delcol`, `hide`) also take **ranges**, `a-b
 | [`addcol {name} [after\|before {col}] fill`](#addcol) | New column, asks you for each row's value | Staged |
 | [`setcol {col} formula {expr}`](#setcol) | Replaces a column's values with a formula's | Staged |
 | [`delcol [{col} ...]`](#delcol) | Deletes columns | Staged |
+| [`mv col {col} {index}`](#mv) | Moves a column to another place | Staged |
 | [`goto {col}`](#goto) | Moves the cursor to a column | Same |
 | [`columns [dtype]`](#columns) | Lists every column's number and name (and with `dtype`, its type); `<CR>` copies a name | Same, with the staged columns |
 | [`stats [{col}] [{figure} ...] [n]`](#stats) | Shows a column's figures (all, or only `max`, `newest`, `common`, ...); `<CR>` copies one. A range limits it to those rows | Same, with the staged changes |
 | [`hide [{col} ...\|clear]`](#hide) | Not available | Hides columns from the view |
 | [`view`](#view-apply-discard) | Opens the table view | |
 | [`apply [sort]`](#view-apply-discard) | | Writes the staged changes to the file's buffer |
-| [`discard`](#view-apply-discard) | | Throws the staged changes away |
+| [`discard`](#view-apply-discard) | | Throws the staged changes, sort, filters and hidden columns away |
 | [`align [on\|off]`](#align) | Turns column alignment on or off | |
 | [`decimal {.\|,\|auto}`](#decimal-and-thousands) | Sets the decimal separator for this file | Same |
 | [`thousands {,\|.\|space\|'\|none\|auto}`](#decimal-and-thousands) | Sets the thousands separator for this file | Same |
@@ -240,6 +241,25 @@ Deletes the columns from every row, header included, in one undo step. The other
 
 </details>
 
+## mv
+
+<details>
+<summary>Examples and details</summary>
+
+```vim
+:Csvkit mv col price 0       " price becomes the first column
+:Csvkit mv col 0 -1          " the first column goes to the end
+:Csvkit mv col notes 99      " past the last place: also the end
+```
+
+`{index}` is the place the column ends up in, counting from 0 like column numbers; `-1` is the last place, `-2` the one before it. A number past the end puts the column last.
+
+In the file's buffer it moves the field in every row, header included, in one undo step; the other fields keep their exact text. A row too short to have the column gets empty fields up to it. In the table view it is staged, and sorts, filters and hidden columns stay on the column they were set on. Moving a column makes the view keep its own copy of every row, so on a very big file it uses more memory than other staged edits.
+
+**Known limit:** a filter formula that names a column by number (rather than by header name) keeps that number after a move, so it then reads whichever column is at that place. Formulas that use header names follow their column.
+
+</details>
+
 ## goto
 
 <details>
@@ -395,14 +415,14 @@ Hiding only affects what you see. `:Csvkit apply` still writes hidden columns to
 :Csvkit view          " open the table view of this file (in the same window)
 :Csvkit apply         " write the staged changes to the file's buffer
 :Csvkit apply sort    " the same, and also write the view's sort order
-:Csvkit discard       " throw the staged changes and the sort away
+:Csvkit discard       " throw away the staged changes, the sort, the filters and the hidden columns
 ```
 
 See [Views: table view](views.md#table-view) for how the table view works.
 
 - `apply` changes the file's **buffer**, as one undo step. Save it with `:w` in that buffer.
 - `apply` refuses if nothing is staged, or if the file's buffer was edited after the view read it. In that case, `discard` and start again.
-- `discard` keeps the filters; `:Csvkit filter clear` removes them.
+- `discard` resets the view to the file: staged changes, sort, filters and hidden columns all go.
 
 </details>
 

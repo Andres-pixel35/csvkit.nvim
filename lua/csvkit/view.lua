@@ -138,7 +138,7 @@ end
 -- Column c of the data rows, as a list.
 local function cells(state, c)
   local recs, staged = state.recs, state.staged[c]
-  local col = not staged and source_column(state, c)
+  local col = not staged and not state.moved and source_column(state, c) -- a moved view owns every row
   if not recs then
     return col
   end
@@ -171,7 +171,7 @@ end
 
 local function pending(state)
   local p = state.pending
-  return p.cols + p.cells + p.rows + p.names + p.dels + p.gone > 0
+  return p.cols + p.cells + p.rows + p.names + p.dels + p.gone + p.moves > 0
 end
 
 -- Starts working on a list of the rows, so rows can be added and changed.
@@ -187,7 +187,8 @@ end
 
 -- Goes back to the source as it is: no staged edits (the sort and filters stay).
 local function reset(state)
-  state.recs, state.pending, state.stale = nil, { cols = 0, cells = 0, rows = 0, names = 0, dels = 0, gone = 0 }, nil
+  state.recs, state.stale, state.moved = nil, nil, nil -- moved: the columns are no longer in the source's order
+  state.pending = { cols = 0, cells = 0, rows = 0, names = 0, dels = 0, gone = 0, moves = 0 }
   state.added = {} -- the columns staged, as sorted final column numbers
   state.removed = {} -- the source's columns deleted, in descending order
   state.staged = {}
@@ -302,6 +303,7 @@ local function info_parts(state, shown, full)
   for _, item in ipairs({
     { "cols", "new column" },
     { "dels", "deleted column" },
+    { "moves", "moved column" },
     { "rows", "new row" },
     { "gone", "deleted row" },
     { "cells", "edited cell" },
@@ -1082,6 +1084,53 @@ function M.delcol(vbuf, cols)
   render(state)
 end
 
+-- Stages moving column c to place index (from 0; -1 is the last, past the
+-- end too). The source's order no longer tells where a column came from, so
+-- every row becomes its own copy (state.moved); what is keyed by column
+-- follows its column.
+function M.mv(vbuf, c, index)
+  local state = state_of(vbuf)
+  local to = edit.target(index, state.ncols)
+  if c == to then
+    return
+  end
+  materialize(state)
+  local function place(f)
+    pad_to(f, math.max(c, to))
+    table.insert(f, to, table.remove(f, c))
+  end
+  for i = 1, #state.recs do
+    place(own(state, i))
+  end
+  if state.t.h == 1 then
+    place(state.hdr)
+  end
+  local function moved(col)
+    if col == c then
+      return to
+    end
+    return col + ((c < to and col > c and col <= to) and -1 or (to < c and col >= to and col < c) and 1 or 0)
+  end
+  local function rekey(map)
+    local out = {}
+    for k, v in pairs(map) do
+      out[moved(k)] = v
+    end
+    return out
+  end
+  for i, a in ipairs(state.added) do
+    state.added[i] = moved(a)
+  end
+  table.sort(state.added)
+  if state.sort then
+    state.sort.col = moved(state.sort.col)
+  end
+  state.cols, state.hidden, state.staged = rekey(state.cols), rekey(state.hidden), rekey(state.staged)
+  state.keep, state.moved, state.ordered = {}, true, nil
+  state.pending.moves = state.pending.moves + 1
+  render(state)
+end
+
 -- Puts a column named spec.name after column spec.after, with values[i] in
 -- data row i (values becomes the staged column). Only the rows with their own
 -- fields get it in them; the others read it from state.staged.
@@ -1190,7 +1239,8 @@ function M.setcol(vbuf, spec)
   return failures, err
 end
 
--- Drops the staged edits and the sort; the filters stay.
+-- Drops everything of the view: the staged edits, the sort, the filters and
+-- the hidden columns.
 function M.discard(vbuf)
   local state = state_of(vbuf)
   if vim.b[state.src].changedtick ~= state.t.tick then -- else state.t is the source as it is
@@ -1200,20 +1250,7 @@ function M.discard(vbuf)
       synced(state)
     end
   end
-  state.sort = nil
-  -- the filters and hidden columns go back to the source's columns: a staged
-  -- column's go, the others move to their column of the source
-  local function back(map)
-    local out = {}
-    for c, v in pairs(map) do
-      local s = source_of(state, c)
-      if s then
-        out[s] = v
-      end
-    end
-    return out
-  end
-  state.cols, state.hidden = back(state.cols), back(state.hidden)
+  state.sort, state.cols, state.hidden, state.expr = nil, {}, {}, nil
   reset(state)
   render(state)
 end
@@ -1295,9 +1332,9 @@ local function staged_lines(state, perm)
   local dropped = #state.removed > 0
   if t.h == 1 then
     local p = state.pending
-    if p.names == 0 and p.cols == 0 and not dropped then
+    if p.names == 0 and p.cols == 0 and p.moves == 0 and not dropped then
       raw(1)
-    elseif dropped or p.names > 0 or not inserted(1, state.hdr) then
+    elseif dropped or p.names > 0 or p.moves > 0 or not inserted(1, state.hdr) then
       serialized(state.hdr)
     end
   end

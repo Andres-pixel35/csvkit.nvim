@@ -10,7 +10,7 @@ vim.api.nvim_create_user_command("Csvkit", function(o)
 end, {
   nargs = "*",
   range = true, -- only row delete and stats take one
-  desc = "csvkit: align, sort, filter, row add, addcol, setcol, decimal, thousands, restore, view, preview",
+  desc = "csvkit: align, sort, filter, row add, addcol, setcol, mv, decimal, thousands, restore, view, preview",
   complete = function(...)
     return require("csvkit.command").complete(...)
   end,
