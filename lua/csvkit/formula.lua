@@ -85,6 +85,7 @@ local FUNCS = { -- name -> { min args, max args }
   LEN = { 1, 1 },
   IF = { 3, 3 },
   PREV = { 1, 2 },
+  PCT_CHANGE = { 1, 2 },
   AND = { 1, MANY },
   OR = { 1, MANY },
   NOT = { 1, 1 },
@@ -290,13 +291,14 @@ local function finite(v)
   return v
 end
 
--- The typed value of a cell (nil = missing field = empty).
-local function value_of(s, opts)
+-- The typed value of a cell (nil = missing field = empty). pct: the cell is in
+-- a percentage column, where "45%" is the number 0.45.
+local function value_of(s, opts, pct)
   s = types.trim(s or "")
   if s == "" then
     return ""
   end
-  local v = types.parse_number(s, opts) or types.parse_date(s, opts)
+  local v = pct and types.parse_percent(s, opts) or types.parse_number(s, opts) or types.parse_date(s, opts)
   if v then
     return v
   end
@@ -414,12 +416,23 @@ local function extreme(name, vals)
   return best
 end
 
+-- Whether column col is a percentage column (types.is_percent_column over
+-- every data row, the hidden ones too); worked out once per run.
+local function percent(env, col)
+  local pct = env.pct[col]
+  if pct == nil then
+    pct = types.is_percent_column(env.cols[col], env.opts, env.n)
+    env.pct[col] = pct
+  end
+  return pct
+end
+
 -- SUM / AVG / COUNT / MIN / MAX over the non-empty cells of column col, on
 -- the shown rows.
 local function aggregate(name, col, env)
-  local vals, cells, shown = {}, env.cols[col], env.shown
+  local vals, cells, shown, pct = {}, env.cols[col], env.shown, percent(env, col)
   for p = 1, shown and #shown or env.n do
-    local v = value_of(cells[shown and shown[p] or p], env.opts)
+    local v = value_of(cells[shown and shown[p] or p], env.opts, pct)
     if v ~= "" then
       vals[#vals + 1] = v
     end
@@ -523,6 +536,24 @@ local function eval(node, env)
   return EVAL[node.k](node, env)
 end
 
+-- x (args[1]) on the n-th shown row before this one (args[2], default 1;
+-- env.p is this one's place); nil when there is no such row.
+local function rows_back(args, env, name)
+  local n = args[2] and want_int(eval(args[2], env), name) or 1
+  if n < 1 then
+    fail(name .. ": n must be 1 or more")
+  end
+  local i, p = env.i, env.p
+  if p - n < 1 then
+    return nil
+  end
+  env.p = p - n
+  env.i = env.shown and env.shown[env.p] or env.p
+  local v = eval(args[1], env)
+  env.i, env.p = i, p
+  return v
+end
+
 -- Functions that evaluate only the arguments they need: (arg nodes, env) -> value.
 local LAZY = {
   IF = function(args, env)
@@ -547,18 +578,22 @@ local LAZY = {
   -- x on the n-th shown row before this one (env.p is this one's place);
   -- formula.prev_default when that is empty or there is no such row.
   PREV = function(args, env)
-    local n = args[2] and want_int(eval(args[2], env), "PREV") or 1
-    if n < 1 then
-      fail("PREV: n must be 1 or more")
+    local v = rows_back(args, env, "PREV")
+    return (v == nil or v == "") and prev_default(env.opts) or v
+  end,
+  -- (x - previous x) / previous x, previous being as in PREV. 0 where the
+  -- previous value is 0, empty or missing, whatever x is; otherwise empty
+  -- unless both are numbers (no failure is reported for those).
+  PCT_CHANGE = function(args, env)
+    local cur = eval(args[1], env)
+    local prev = rows_back(args, env, "PCT_CHANGE")
+    local tc, tp = typ(cur), prev == nil and "empty" or typ(prev)
+    if tp == "empty" or prev == 0 then
+      return 0
+    elseif tc ~= "number" or tp ~= "number" then
+      return ""
     end
-    local i, p, v = env.i, env.p, ""
-    if p - n >= 1 then
-      env.p = p - n
-      env.i = env.shown and env.shown[env.p] or env.p
-      v = eval(args[1], env)
-      env.i, env.p = i, p
-    end
-    return v == "" and prev_default(env.opts) or v
+    return finite((cur - prev) / prev)
   end,
 }
 
@@ -567,7 +602,7 @@ function EVAL.lit(node)
 end
 
 function EVAL.col(node, env)
-  return value_of(env.cols[node.col][env.i], env.opts)
+  return value_of(env.cols[node.col][env.i], env.opts, percent(env, node.col))
 end
 
 function EVAL.neg(node, env)
@@ -624,7 +659,7 @@ end
 -- Calls each(i, value) per row, or each(i, nil, message) where the row failed.
 local function each_row(ast, ctx, each)
   local shown = ctx.shown
-  local env = { cols = ctx.cols, n = ctx.n, opts = ctx.opts, cache = {}, shown = shown }
+  local env = { cols = ctx.cols, n = ctx.n, opts = ctx.opts, cache = {}, pct = {}, shown = shown }
   for p = 1, shown and #shown or ctx.n do
     local i = shown and shown[p] or p
     env.i, env.p = i, p
@@ -655,11 +690,28 @@ function M.eval_column(ast, ctx)
   return values, failures, first_err
 end
 
+M.AGGREGATES = AGGREGATES
+
+-- SUM / AVG / COUNT / MIN / MAX (name) of the cells (strings, the empty ones
+-- skipped), typed as in a formula; pct: they are a percentage column's. Returns
+-- the value, or nil and the reason when the cells don't allow it (text in a
+-- SUM, an empty MIN, ...).
+function M.group_aggregate(name, cells, opts, pct)
+  local env = { cols = { cells }, n = #cells, opts = opts, pct = { pct } }
+  local ok, v = pcall(aggregate, name, 1, env)
+  if ok then
+    return v
+  elseif type(v) ~= "table" then
+    error(v, 0) -- a bug, not a data error
+  end
+  return nil, v.msg
+end
+
 -- ast, when a filter can use it; raises if it uses PREV, whose rows are the
 -- visible ones, which a filter decides.
 function M.filterable(ast)
-  if ast.k == "call" and ast.name == "PREV" then
-    error("csvkit: PREV works in addcol and setcol, not in filters", 0)
+  if ast.k == "call" and (ast.name == "PREV" or ast.name == "PCT_CHANGE") then
+    error(("csvkit: %s works in addcol and setcol, not in filters"):format(ast.name), 0)
   end
   for _, child in ipairs(ast.args or { ast.a, ast.b }) do
     M.filterable(child)

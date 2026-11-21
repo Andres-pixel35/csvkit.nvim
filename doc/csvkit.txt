@@ -117,6 +117,19 @@ the file only by |:Csvkit-apply|.
     cell, and a warning gives the count, the line numbers of the first five
     and the first reason.
 
+                                                           *:Csvkit-groupby*
+:Csvkit groupby {col}[, {col} ...] [{agg} {col}[, ...]]
+    Replace the visible rows with one row per distinct combination of the
+    key columns (the words before the first aggregate), in the order first
+    seen, plus one column per aggregate, named `sum_qty`. {agg} is `sum`,
+    `avg`, `min`, `max` or `count`, read as the whole-column functions of
+    |csvkit-formulas| do. A group where one fails gets an empty cell and a
+    warning. Hidden rows are left out; the sort, filters and hidden columns
+    are cleared. One undo step. Staged in the table view (the groups are new
+    rows that replace all the others on |:Csvkit-apply|).
+>
+    :Csvkit groupby city, year sum qty, avg price
+<
                                                              *:Csvkit-delcol*
 :Csvkit delcol [{col} ...]
     Delete columns from every row, header included: names, numbers and
@@ -136,7 +149,7 @@ the file only by |:Csvkit-apply|.
                                                             *:Csvkit-columns*
 :Csvkit columns [dtype]
     List every column's number (from 0) and name in a window; in the table
-    view, staged columns too. With dtype, each column's type (number, date,
+    view, staged columns too. With dtype, each column's type (number, percent, date,
     bool or string) follows its name; every row is read. Long names wrap under the name, and the window
     is never taller than the screen (scroll it, or search with `/`). <CR>
     copies the name on the cursor's line and closes; `q` or <Esc> closes.
@@ -387,7 +400,7 @@ never changed.
 
     empty    nothing but spaces
     number   sign, digits, decimals, exponent: `42`, `-3.5`, `.5`, `1e3`.
-             NOT numbers: `0x1A`, `inf`, `nan`, `$12`, `45%`. With a
+             NOT numbers: `0x1A`, `inf`, `nan`, `$12`; see below for `45%`. With a
              thousands separator, groups after the first have 3 digits.
     date     matches one of `date_formats` and is a real calendar date
     bool     `true` or `false`, any case
@@ -395,6 +408,13 @@ never changed.
 
 A column sorts by a type only if all its non-empty cells have that type;
 otherwise it sorts as text.
+
+Percentage columns: when every non-empty cell of a column is a number
+followed by % (`45%`, `12.5 %`), csvkit reads the column as decimals (`45%`
+is 0.45) in sorting, the browser preview, formulas, `groupby` and `stats`,
+and `columns dtype` calls it `percent`. One other cell and it is text again.
+The file keeps its `45%`; to write the decimals, run `:Csvkit setcol rate
+formula rate`.
 
 ==============================================================================
 7. FORMULAS                                                  *csvkit-formulas*
@@ -447,6 +467,9 @@ Functions (any case) ~
     YEAR MONTH DAY (d)
     PREV(x) PREV(x, n)           x on the row before, 0 when empty
                                  (|csvkit-prev|)
+    PCT_CHANGE(x) PCT_CHANGE(x, n)
+                                 growth over the row before, as a fraction
+                                 (|csvkit-pct-change|)
 
 A mistake in the formula is reported before anything changes, with its
 position. A row where the formula fails gets an empty cell, and a warning
@@ -466,6 +489,14 @@ first row), PREV is `formula.prev_default`, 0 by default, so
 `total - PREV(total)` works on the first row too. Only the row PREV reads is
 checked. PREV works in `addcol` and `setcol`, not in filters. >
     :Csvkit setcol growth formula (total - PREV(total)) / PREV(total)
+<
+                                                          *csvkit-pct-change*
+PCT_CHANGE(x, n) is (x - PREV(x, n)) / PREV(x, n) as a fraction (0.1 is
++10 %), on the visible rows in their order (`addcol` and `setcol` only,
+not filters). It is 0 where
+the previous value is 0 or empty or there is no such row (whatever the
+value is), and empty (no failure warning) otherwise unless both are numbers. >
+    :Csvkit addcol growth formula PCT_CHANGE(total)
 <
 ==============================================================================
 8. LIMITS                                                      *csvkit-limits*

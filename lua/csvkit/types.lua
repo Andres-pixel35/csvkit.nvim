@@ -251,6 +251,34 @@ function M.parse_bool(s)
   return BOOLS[trim(s):lower()]
 end
 
+-- A percentage as the number it stands for ("45%" is 0.45, "12.5 %" 0.125), or
+-- nil when s is not a number followed by %.
+function M.parse_percent(s, opts)
+  s = trim(s)
+  if s:byte(-1) ~= 37 then -- %
+    return nil
+  end
+  local v = M.parse_number(s:sub(1, -2), opts)
+  return v and v / 100
+end
+
+-- Whether a column is a percentage column: its first n cells (default: all)
+-- hold at least one non-empty cell, and every non-empty one is a percentage.
+-- A nil cell (a missing field) counts as empty.
+function M.is_percent_column(cells, opts, n)
+  local seen = false
+  for i = 1, n or #cells do
+    local s = trim(cells[i] or "")
+    if s ~= "" then
+      if not M.parse_percent(s, opts) then
+        return false
+      end
+      seen = true
+    end
+  end
+  return seen
+end
+
 -- "empty" | "number" | "date" | "bool" | "string"
 function M.typeof(s, opts)
   s = trim(s)
@@ -266,14 +294,17 @@ function M.typeof(s, opts)
   return "string"
 end
 
--- The type shared by every non-empty cell, else "string". cells are one
--- column's data cells (no header).
+-- The type shared by every non-empty cell, else "string"; "percent" when every
+-- non-empty cell is a percentage (read as a number, never a number in the
+-- file). cells are one column's data cells (no header).
 function M.infer_column(cells, opts)
   local found
   for _, s in ipairs(cells) do
     local t = M.typeof(s, opts)
     if t ~= "empty" then
-      if t == "string" or (found and t ~= found) then
+      if t == "string" and not found then -- a percentage column has no other type's cell
+        return M.is_percent_column(cells, opts) and "percent" or "string"
+      elseif t == "string" or (found and t ~= found) then
         return "string"
       end
       found = t

@@ -61,6 +61,7 @@ Commands that take several columns (`delcol`, `hide`) also take **ranges**, `a-b
 | [`setcol {col} formula {expr}`](#setcol) | Replaces a column's values with a formula's | Staged |
 | [`delcol [{col} ...]`](#delcol) | Deletes columns | Staged |
 | [`mv col {col} {index}`](#mv) | Moves a column to another place | Staged |
+| [`groupby {col}[, {col} ...] [sum\|avg\|min\|max\|count {col}[, ...]]`](#groupby) | Replaces the visible rows with one row per group | Staged |
 | [`goto {col}`](#goto) | Moves the cursor to a column | Same |
 | [`columns [dtype]`](#columns) | Lists every column's number and name (and with `dtype`, its type); `<CR>` copies a name | Same, with the staged columns |
 | [`stats [{col}] [{figure} ...] [n]`](#stats) | Shows a column's figures (all, or only `max`, `newest`, `common`, ...); `<CR>` copies one. A range limits it to those rows | Same, with the staged changes |
@@ -225,6 +226,33 @@ Like `addcol ... formula`, but the results replace the cells of an **existing** 
 
 </details>
 
+## groupby
+
+<details>
+<summary>Examples and details</summary>
+
+```vim
+:Csvkit groupby city                                 " one row per city
+:Csvkit groupby city, year sum qty, avg price        " per city and year: the total qty and the average price
+:Csvkit groupby 0 count 1                            " column numbers work too
+```
+
+Replaces the rows with **one row per distinct combination** of the key columns (the words before the first aggregate), in the order each combination first appears. Then comes one column per aggregate, named like `sum_qty` and `avg_price` (the column's number when the file has no header).
+
+| Aggregate | Result |
+|---|---|
+| `sum`, `avg` | Sum or average of the group's numbers |
+| `min`, `max` | Smallest or largest: numbers, or dates |
+| `count` | How many cells are not empty |
+
+- They read cells like [whole-column functions](formulas.md#whole-column-functions) do: empty cells are skipped, and a group where an aggregate can't be computed (text in a `sum`) gets an **empty** cell, with a warning naming the result's lines.
+- **Only the visible rows are grouped.** The rows your filters hide are left out of the result (and, like any edit, are gone from the buffer; `u` brings everything back). The filters are cleared afterwards, since the columns changed (in the table view, the sort and hidden columns too). Key values are compared after trimming spaces and are case-sensitive; an empty key is a group of its own.
+- Commas between the columns are optional. A column named like an aggregate (`sum`) can't be a key by name; use its number.
+- It is one edit, so one `u` undoes it, and `:Csvkit restore` also brings the original back.
+- **In the [table view](views.md#table-view)** it is staged: the groups appear at once (in the view's sort order, which is the order "first seen" follows), and the file changes only at `:Csvkit apply`, which writes the header and the groups and drops every other row. `:Csvkit discard` takes it back. The groups are new rows, so you can sort and filter them, edit their cells, add or delete columns and rows, or group again, all still staged. The staged rows count as `new rows` and every old row as `deleted rows` in the first line.
+
+</details>
+
 ## delcol
 
 <details>
@@ -299,7 +327,7 @@ Opens a window listing every column: its number (from 0, as `{col}` takes it) an
 - **Many columns**: the window is never taller than the screen; scroll it, or search it with `/`. The title says how many columns there are.
 - A cell spanning several lines in the header shows `⏎` where it breaks. A column with no name, or a file without a header row (`header = false`), shows the number only.
 - In the table view, columns added or deleted there (staged) count.
-- **`dtype`** adds each column's type after its name: `number`, `date`, `bool` or `string` (see [Value types](configuration.md#value-types)). It reads every row (in the table view, the rows shown), so on a big file it takes a moment and briefly holds the file's cells in memory.
+- **`dtype`** adds each column's type after its name: `number`, `percent` (every cell is like `45%`, read as `0.45`), `date`, `bool` or `string` (see [Value types](configuration.md#value-types)). It reads every row (in the table view, the rows shown), so on a big file it takes a moment and briefly holds the file's cells in memory.
 
 | Key | Action |
 |---|---|

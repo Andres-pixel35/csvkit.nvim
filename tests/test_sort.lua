@@ -12,6 +12,13 @@ local function sorted(cells, spec, opts)
 end
 
 return {
+  ["a percentage column sorts by its numbers, not as text"] = function()
+    local cells = { "10%", "9%", "", "100%", "2.5%" }
+    eq(sorted(cells, {}), { "2.5%", "9%", "10%", "100%", "" })
+    eq(sorted(cells, { desc = true }), { "100%", "10%", "9%", "2.5%", "" })
+    eq(sorted({ "10%", "9", "100%" }, {}), { "10%", "100%", "9" }) -- a column with a plain number: text
+  end,
+
   ["numbers sort by value, strings by text"] = function()
     eq(sorted({ "10", "9", "100", "-1.5" }, {}), { "-1.5", "9", "10", "100" })
     eq(sorted({ "10", "9", "100" }, { type = "string" }), { "10", "100", "9" })

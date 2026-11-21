@@ -17,12 +17,13 @@ local function date_key(s, opts)
 end
 
 -- The keys of a column whose non-empty cells are all numbers (what
--- infer_column calls a number column), else nil: the type and the keys from
+-- infer_column calls a number column; parse reads them: parse_number, or
+-- parse_percent for a percentage column), else nil: the type and the keys from
 -- one parse of each cell.
-local function number_keys(cells, opts)
+local function number_keys(cells, opts, parse)
   local keys, found = {}, false
   for i, s in ipairs(cells) do
-    local v = types.parse_number(s, opts)
+    local v = parse(s, opts)
     if v then
       keys[i], found = v, true
     elseif types.trim(s) == "" then
@@ -70,8 +71,11 @@ function M.payload(buf)
       end
       p.cells[c] = cells
     end
-    local keys = number_keys(cells, opts)
+    local keys = number_keys(cells, opts, types.parse_number)
     local kind = keys and "number" or types.infer_column(cells, opts)
+    if kind == "percent" then -- the page sorts it as a number, and shows the cells as they are
+      keys, kind = number_keys(cells, opts, types.parse_percent), "number"
+    end
     if kind == "date" then
       keys = {}
       for i, cell in ipairs(cells) do

@@ -96,6 +96,13 @@ return {
     eq(p.keys["1"], nil)
   end,
 
+  ["payload: a percentage column is a number column with the keys of its decimals"] = function()
+    local p = preview.payload(open({ "rate,note", "10%,a", "5%,b", ",c" }))
+    eq(p.cols, { { name = "rate", type = "number" }, { name = "note", type = "string" } })
+    eq(p.cells[1], { "10%", "5%", "" })
+    eq(p.keys["1"], { 0.1, 0.05, vim.NIL })
+  end,
+
   ["payload: no header, multiline records and ragged rows"] = function()
     local buf = open({ '"a', 'b",1', "x,2,3", "", "y" })
     vim.b[buf].csvkit = { header = false }

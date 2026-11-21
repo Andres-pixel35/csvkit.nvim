@@ -13,8 +13,10 @@ View, sort, filter and fill in CSV files without leaving Neovim. No dependencies
 - **Sort** by any column, as numbers, text or dates.
 - **Filter** like a spreadsheet: tick the values to keep from a column's list, or keep the rows matching a condition such as `price > 100`. Filters only hide rows; they never delete them.
 - **Add and delete** rows and columns, a new column wherever you want it. A new column can hold a fixed text, the result of a [formula](docs/formulas.md), or values you type row by row.
+- **Group by** (`:Csvkit groupby city, year sum qty, avg price`): collapse the rows into one per group, with sums, averages, minimums, maximums and counts.
+- **Percentage columns.** A column whose cells are all like `45%` is read as decimals (`0.45`) by sorting, formulas, `groupby` and `stats`; the file keeps its `45%` until you write them with `:Csvkit setcol rate formula rate`.
 - **Stats** of a column (`:Csvkit stats`): max, newest date, most common value, the largest and smallest values, every value with its count. Pick one to copy it.
-- **Formulas** such as `price * qty`, `IF(...)`, `ROUND(...)`, date arithmetic, and `PREV(...)` to use the previous row (for growth and differences; an empty previous value counts as 0).
+- **Formulas** such as `price * qty`, `IF(...)`, `ROUND(...)`, date arithmetic, and `PREV(...)` to use the previous row (for growth and differences; an empty previous value counts as 0), and `PCT_CHANGE(...)` for the growth over the previous row.
 - **Table view** (`:Csvkit view`): a separate table where you can try sorts, filters and edits safely. Nothing reaches the file until you run `:Csvkit apply`.
 - **Browser preview** (`:Csvkit preview`): the file as a table in your browser, with sorting and filtering, refreshed as you edit.
 - **Restore** the file exactly as it was when you opened it, even after saving.

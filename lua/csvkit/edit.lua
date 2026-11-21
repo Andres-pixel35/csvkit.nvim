@@ -484,6 +484,103 @@ function M.add_column(t, spec)
   write(t, { 1, t.last }, out)
 end
 
+-- Groups rows by spec = { keys = {columns}, aggs = { { name, col } } } (name a
+-- formula.AGGREGATES name): one result row per distinct combination of the
+-- trimmed key values, in the order first seen, followed by one cell per
+-- aggregate; a group an aggregate fails on gets an empty cell. ctx = {
+-- cells(c) -> column c's cells by data row, rows = the data rows to group
+-- (in order), n = the number of data rows, opts, label(c) -> a column's name }. Returns the result rows
+-- (lists of cells), the header (key names, then "sum_qty"-like names), the
+-- numbers of the result rows that failed and the first failure's message.
+-- Raises when there is no row to group.
+function M.group_rows(spec, ctx)
+  local cols, order, groups = {}, {}, {}
+  for _, c in ipairs(vim.list_extend(vim.tbl_map(function(a)
+    return a.col
+  end, spec.aggs), spec.keys)) do
+    cols[c] = cols[c] or ctx.cells(c)
+  end
+  local percents = {} -- the aggregated columns that hold percentages, as a whole
+  for _, a in ipairs(spec.aggs) do
+    if percents[a.col] == nil then
+      percents[a.col] = types.is_percent_column(cols[a.col], ctx.opts, ctx.n)
+    end
+  end
+  local parts, nkeys = {}, #spec.keys -- one scratch list for every row; a group copies it
+  for _, i in ipairs(ctx.rows) do
+    for k, c in ipairs(spec.keys) do
+      parts[k] = types.trim(cols[c][i] or "")
+    end
+    local id = nkeys == 1 and parts[1] or table.concat(parts, "\0")
+    local g = groups[id]
+    if not g then
+      g = { key = vim.list_slice(parts, 1, nkeys), rows = {} }
+      groups[id], order[#order + 1] = g, g
+    end
+    g.rows[#g.rows + 1] = i
+  end
+  if #order == 0 then
+    error("csvkit: groupby: no rows to group", 0)
+  end
+  local rows, failures, err = {}, {}, nil
+  for r, g in ipairs(order) do
+    local row = g.key
+    for k, a in ipairs(spec.aggs) do
+      local cells = {}
+      for n, i in ipairs(g.rows) do
+        cells[n] = cols[a.col][i] or ""
+      end
+      local v, why = formula.group_aggregate(a.name, cells, ctx.opts, percents[a.col])
+      row[#spec.keys + k] = v and types.format_value(v, ctx.opts) or ""
+      if not v then
+        failures[#failures + 1], err = r, err or why
+      end
+    end
+    rows[r] = row
+  end
+  local header = vim.tbl_map(ctx.label, spec.keys)
+  for _, a in ipairs(spec.aggs) do
+    header[#header + 1] = a.name:lower() .. "_" .. ctx.label(a.col)
+  end
+  return rows, header, failures, err
+end
+
+-- Replaces the data rows but those in hide (a set, or nil) with their groups
+-- (see group_rows), in one write. Returns the lines of the result's rows that
+-- failed and the first failure's message.
+function M.groupby(t, spec, hide)
+  local rows = {}
+  for i = 1, t.n do
+    if not (hide and hide[i]) then
+      rows[#rows + 1] = i
+    end
+  end
+  local result, header, failures, err = M.group_rows(spec, {
+    cells = function(c)
+      return csv.column(t, c, t.h + 1)
+    end,
+    rows = rows,
+    n = t.n,
+    opts = t.opts,
+    label = function(c)
+      local name = t.h == 1 and types.trim(t.first[c] or "") or ""
+      return name ~= "" and name or tostring(c - 1)
+    end,
+  })
+  if t.h == 1 then
+    table.insert(result, 1, header)
+  end
+  local out = {}
+  for _, row in ipairs(result) do
+    vim.list_extend(out, vim.split(csv.serialize_row(row, t.opts.delimiter, t.quote_all), "\n", { plain = true }))
+  end
+  write(t, { 1, t.last }, out)
+  for k, r in ipairs(failures) do
+    failures[k] = r + t.h
+  end
+  return failures, err
+end
+
 -- Puts back buf's file as it was opened (backup.lua), as one undoable edit.
 -- Only the lines changed since it was read are read (from both) and compared,
 -- and only those between the first and the last that differ are written.
