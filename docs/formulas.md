@@ -48,6 +48,8 @@ Each cell is read as one of these types (the rules are in [Value types](configur
 | bool | `true`, `FALSE` | `TRUE`, `FALSE` (any case) |
 | empty | nothing, or only spaces | `""` |
 
+A column where every non-empty cell is like `45%` is a [percentage column](configuration.md#percentage-columns): its cells are the numbers `0.45`, ... in formulas, and `:Csvkit setcol rate formula rate` writes them as decimals.
+
 Commas separate function arguments, which is why numbers in formulas always use `.` for decimals, even when the file uses `,`.
 
 </details>
@@ -134,6 +136,7 @@ qty / SUM(qty)                each row's share of the total
 | `DATE(y, m, d)` | The date from a year, month and day. An impossible date (`DATE(2023, 2, 30)`) is an error | `DATE(2024, 1, 1)` |
 | `TODAY()` | Today's date | `TODAY() - birth` |
 | `YEAR(d)`, `MONTH(d)`, `DAY(d)` | The year, month or day of a date, as a number | `YEAR(day) = 2024` |
+| `PCT_CHANGE(x)`, `PCT_CHANGE(x, n)` | Growth of `x` over the previous row (or `n` rows before), as a fraction: `0.25` is +25 %. See [below](#pct_change-growth-over-the-row-before) | `PCT_CHANGE(total)` |
 | `PREV(x)`, `PREV(x, n)` | `x` on the row before (or `n` rows before); 0 when that is empty or missing. See [below](#prev-the-row-before) | `total - PREV(total)` |
 
 `MIN` and `MAX` do both jobs: with **one column** they look at the whole column, with **two or more values** they compare within the row.
@@ -155,7 +158,30 @@ qty / SUM(qty)                each row's share of the total
 - **"Previous" means as you see the rows when you run the command.** In the file's buffer, that is the file's order, skipping rows your filters hide. In the [table view](views.md#table-view), it is the view's sort order, skipping hidden rows. So sort and filter first, then run the command. The values are written once; sorting again later doesn't change them.
 - **Hidden rows are left alone**: they are not computed, and `PREV` skips them.
 - **An empty value counts as 0.** When the row `PREV` reads has an empty cell, or there is no such row (the first row, or `PREV(x, 3)` on the first three rows), `PREV` gives **0**, so `total - PREV(total)` works on the first row without any `IF`. Only the row `PREV` reads is checked: `PREV(x, 3)` is 0 when the third row up is empty, whatever the rows in between hold. Change the 0 with the option [`formula.prev_default`](configuration.md#formulaprev_default), for example to `""` to get an empty value (then arithmetic with it fails and the cell is left empty).
-- `PREV` works only in `addcol` and `setcol`, not in filters (`filter`, `row delete where`, the browser's filter box). A filter decides which rows are visible, so "the previous visible row" would depend on itself. Compute the column first, then filter on it.
+- `PREV` (and [`PCT_CHANGE`](#pct_change-growth-over-the-row-before)) work only in `addcol` and `setcol`, not in filters (`filter`, `row delete where`, the browser's filter box). A filter decides which rows are visible, so "the previous visible row" would depend on itself. Compute the column first, then filter on it.
+
+</details>
+
+## PCT_CHANGE: growth over the row before
+
+<details>
+<summary>Show details</summary>
+
+`PCT_CHANGE(x)` is `(x - PREV(x)) / PREV(x)`: how much `x` grew since the previous row, as a fraction (`0.1` is +10 %, `-0.5` is -50 %). `PCT_CHANGE(x, 12)` compares with the row 12 rows up. Rows are read as in [`PREV`](#prev-the-row-before): the order you see them, skipping hidden rows, and it works only in `addcol` and `setcol`.
+
+```vim
+:Csvkit addcol growth formula PCT_CHANGE(total)
+:Csvkit setcol growth formula ROUND(PCT_CHANGE(total) * 100, 1)     " as a percentage
+```
+
+| When | Result |
+|---|---|
+| the previous value is 0 or empty, or there is no previous row (the first row) | **0**, whatever the value is (a number, text, a date, empty...) |
+| the previous value is text, a date or TRUE/FALSE | empty, with **no** failure warning |
+| the previous value is a number but not 0, and the value is empty, text, a date or TRUE/FALSE | empty, with **no** failure warning |
+| both are numbers (the previous one not 0) | the growth |
+
+It does not use [`formula.prev_default`](configuration.md#formulaprev_default): the 0 is fixed.
 
 </details>
 

@@ -96,6 +96,7 @@ In the table view, nothing you do changes the file right away. Changes are **sta
 | Replace a column's values | `:Csvkit setcol {col} formula {expr}` |
 | Delete columns | `:Csvkit delcol {col} ...` |
 | Move a column | `:Csvkit mv col {col} {index}` (`-1` is the end) |
+| Group the rows | `:Csvkit groupby {col}, ... sum {col}, ...` (see [groupby](commands.md#groupby)): the groups replace the shown rows and all columns |
 | See the row in the file | `<CR>`: jumps to that row in the file's buffer |
 | See all of the first line | `<CR>` on it |
 | See a column's figures | `:Csvkit stats {col}`: max, newest date, most common value, ... over the rows shown, staged changes included |

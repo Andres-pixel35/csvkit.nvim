@@ -1242,6 +1242,73 @@ return {
     eq(lines(vbuf)[3], "│ 0 age │ 1 name │ 2 city │")
   end,
 
+  ["groupby is staged: the groups replace the rows and the columns; apply writes it, discard undoes it"] = function()
+    local src, vbuf = open_view(PEOPLE)
+    vim.cmd("Csvkit sort age desc")
+    vim.cmd("Csvkit filter age > 10") -- Mia is hidden: she is not grouped
+    vim.cmd("Csvkit hide name")
+    vim.cmd("Csvkit groupby city, count name, sum age, max age")
+    eq(lines(vbuf)[3], "│ 0 city │ 1 count_name │ 2 sum_age │ 3 max_age │")
+    -- groups in the view's order (the sort), the sort, filter and hidden columns gone
+    eq(records(vbuf), { "Madrid 2 66 41", "Bogota 1 30 30" })
+    eq(lines(vbuf)[1], " 2 of 2 rows │ staged: 2 new rows, 4 deleted rows, 1 new header (:Csvkit apply | discard)")
+    eq(lines(src), PEOPLE)
+    vim.cmd("Csvkit apply")
+    eq(lines(src), { "city,count_name,sum_age,max_age", "Madrid,2,66,41", "Bogota,1,30,30" })
+    vim.api.nvim_buf_call(src, function()
+      vim.cmd("silent undo") -- one undo step
+    end)
+    eq(lines(src), PEOPLE)
+    vim.wait(view.DEBOUNCE + 100) -- the view reads the source again
+    -- a second groupby on the staged result, staging after it, discard
+    vim.cmd("Csvkit groupby city sum age")
+    vim.cmd("Csvkit groupby city max sum_age")
+    vim.cmd("Csvkit addcol double after 1 formula max_sum_age * 2")
+    vim.cmd("Csvkit setcol city formula UPPER(city)")
+    eq(records(vbuf), { "BOGOTA 30 60", "MADRID 66 132", "PARIS 9 18" })
+    -- the groups can be filtered (and the next groupby sees only the visible ones)
+    vim.cmd('Csvkit filter city <> "PARIS"')
+    eq(records(vbuf), { "BOGOTA 30 60", "MADRID 66 132" })
+    vim.cmd("Csvkit filter clear")
+    vim.api.nvim_win_set_cursor(0, { 5, 0 }) -- BOGOTA
+    vim.cmd("Csvkit row delete")
+    vim.cmd("Csvkit apply")
+    eq(lines(src), { "city,max_sum_age,double", "MADRID,66,132", "PARIS,9,18" })
+    vim.cmd("Csvkit groupby city")
+    vim.cmd("Csvkit discard")
+    eq(lines(vbuf)[3], "│ 0 city │ 1 max_sum_age │ 2 double │")
+    eq(lines(src), { "city,max_sum_age,double", "MADRID,66,132", "PARIS,9,18" })
+    -- columns deleted and added after a groupby keep the width right
+    vim.cmd("Csvkit groupby city sum double")
+    vim.cmd("Csvkit delcol 1")
+    vim.cmd("Csvkit addcol z value 1")
+    vim.cmd("Csvkit addcol y value 2")
+    eq(lines(vbuf)[3], "│ 0 city │ 1 y │ 2 z │")
+    vim.cmd("Csvkit delcol z y")
+    eq(lines(vbuf)[3], "│ 0 city │")
+  end,
+
+  ["groupby in the view: no header, a failing aggregate named as a new row, nothing to group"] = function()
+    local src = open({ "a,1", "a,x", "b,5" })
+    vim.b[src].csvkit = { header = false }
+    vim.cmd("Csvkit view")
+    local vbuf = vim.api.nvim_get_current_buf()
+    local notes, notify = {}, vim.notify
+    vim.notify = function(msg)
+      notes[#notes + 1] = msg
+    end
+    vim.cmd("Csvkit groupby 0 sum 1")
+    eq(records(vbuf), { "a", "b 5" }) -- text in a sum: that cell is empty
+    vim.cmd('Csvkit filter $0 = "zzz"')
+    eq(records(vbuf), {}) -- no row left
+    vim.cmd("Csvkit groupby 0")
+    vim.notify = notify
+    eq(notes, { "csvkit: 1 cell failed (rows new 1): SUM: expected number, got string", "csvkit: groupby: no rows to group" })
+    vim.cmd("Csvkit filter clear")
+    vim.cmd("Csvkit apply")
+    eq(lines(src), { "a,", "b,5" })
+  end,
+
   ["mv col with staged and deleted columns and edited rows: apply writes every row in the new order"] = function()
     local src, vbuf = open_view(PEOPLE)
     vim.cmd("Csvkit addcol z value 1") -- after name

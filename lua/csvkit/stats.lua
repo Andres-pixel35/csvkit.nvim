@@ -14,12 +14,12 @@ end
 
 -- The column types a figure needs, for the figures that do not fit every column.
 local NEEDS = {
-  min = "number or date",
-  max = "number or date",
-  largest = "number or date",
-  smallest = "number or date",
-  sum = "number",
-  average = "number",
+  min = "number, percent or date",
+  max = "number, percent or date",
+  largest = "number, percent or date",
+  smallest = "number, percent or date",
+  sum = "number or percent",
+  average = "number or percent",
   oldest = "date",
   newest = "date",
 }
@@ -71,10 +71,11 @@ function M.entries(cells, opts, spec)
     figure("common", "most common", text, values[1].value)
   end
   local sorted -- { key, text } of the filled cells, smallest first
-  if kind == "number" or kind == "date" then
+  if kind ~= "string" and kind ~= "bool" then
     sorted = {}
+    local parse = kind == "percent" and types.parse_percent or types.parse_number
     for i, s in ipairs(filled) do
-      sorted[i] = { kind == "number" and types.parse_number(s, opts) or types.parse_date(s, opts).day, s }
+      sorted[i] = { kind == "date" and types.parse_date(s, opts).day or parse(s, opts), s }
     end
     table.sort(sorted, function(a, b)
       return a[1] < b[1]
@@ -82,7 +83,7 @@ function M.entries(cells, opts, spec)
     local low, high = kind == "date" and "oldest" or "min", kind == "date" and "newest" or "max"
     figure("min", low, sorted[1][2])
     figure("max", high, sorted[#sorted][2])
-    if kind == "number" then
+    if kind ~= "date" then -- number or percent: a percentage adds up as its decimal
       local sum = 0
       for _, k in ipairs(sorted) do
         sum = sum + k[1]

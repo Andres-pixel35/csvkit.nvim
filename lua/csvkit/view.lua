@@ -187,7 +187,7 @@ end
 
 -- Goes back to the source as it is: no staged edits (the sort and filters stay).
 local function reset(state)
-  state.recs, state.stale, state.moved = nil, nil, nil -- moved: the columns are no longer in the source's order
+  state.recs, state.stale, state.moved, state.collapsed = nil, nil, nil, nil -- moved: the columns are no longer in the source's order
   state.pending = { cols = 0, cells = 0, rows = 0, names = 0, dels = 0, gone = 0, moves = 0 }
   state.added = {} -- the columns staged, as sorted final column numbers
   state.removed = {} -- the source's columns deleted, in descending order
@@ -242,7 +242,7 @@ local function order(state, skip)
     end
   end
   for i in pairs(hide) do
-    if recs and not src_of(recs[i]) then
+    if recs and not src_of(recs[i]) and not recs[i].group then -- a row of a groupby can be filtered
       hide[i] = nil
     end
   end
@@ -371,8 +371,8 @@ end
 local function frame(state, measure)
   local t = state.t
   if measure then
-    local ncols = #t.first
-    for _, s in ipairs(state.removed) do
+    local ncols = state.collapsed or #t.first -- collapsed: the columns of a groupby, none from the source
+    for _, s in ipairs(state.collapsed and {} or state.removed) do
       ncols = ncols - (s <= #t.first and 1 or 0)
     end
     ncols = math.max(ncols, #state.hdr)
@@ -1064,6 +1064,7 @@ local function drop_column(state, c)
   if state.t.h == 1 and #state.hdr >= c then
     table.remove(state.hdr, c)
   end
+  state.collapsed = state.collapsed and state.collapsed - 1
 end
 
 -- Stages the deletion of columns cols (a list; default: the cursor's).
@@ -1162,6 +1163,7 @@ local function insert_column(state, spec, values)
     table.insert(state.hdr, spec.after + 1, spec.name)
   end
   state.pending.cols = state.pending.cols + 1
+  state.collapsed = state.collapsed and state.collapsed + 1
   render(state)
 end
 
@@ -1235,6 +1237,41 @@ function M.setcol(vbuf, spec)
     end
   end
   state.ordered = nil
+  render(state)
+  return failures, err
+end
+
+-- Stages replacing the shown rows with their groups (edit.group_rows): every
+-- source row is gone and the result is new rows, with the key and aggregate
+-- columns as the only columns. The sort, filters and hidden columns named
+-- columns that are gone, so they go too. Returns the names of the new rows
+-- an aggregate failed on ("new N") and the first failure's message.
+function M.groupby(vbuf, spec)
+  local state = state_of(vbuf)
+  local t = state.t
+  local rows, header, failures, err = edit.group_rows(spec, {
+    cells = function(c)
+      return cells(state, c)
+    end,
+    rows = state.shown,
+    n = count(state),
+    opts = t.opts,
+    label = function(c)
+      return name_of(state, c)
+    end,
+  })
+  local recs = {}
+  for r, f in ipairs(rows) do
+    recs[r] = { f = f, edited = true, group = true }
+  end
+  for k, r in ipairs(failures) do
+    failures[k] = "new " .. r
+  end
+  state.recs, state.staged, state.added, state.removed = recs, {}, {}, {}
+  state.hdr = t.h == 1 and header or {}
+  state.sort, state.cols, state.hidden, state.expr = nil, {}, {}, nil
+  state.keep, state.moved, state.collapsed, state.ordered = {}, true, #header, nil
+  state.pending = { cols = 0, cells = 0, rows = #recs, names = t.h, dels = 0, gone = t.n, moves = 0 }
   render(state)
   return failures, err
 end

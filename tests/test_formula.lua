@@ -387,6 +387,50 @@ return {
     eq(formula.filterable(formula.compile("price > 1", HEADER)).k, "op")
   end,
 
+  ["a percentage column is read as decimals: columns, aggregates, whole-column only"] = function()
+    local rows = { { "10%" }, { "" }, { "25 %" } }
+    eq(run("price * 2", { { "10%" }, { "25%" } }), { "0.2", "0.5" })
+    eq(run("price > 0.2", { { "10%" }, { "25%" } }), { "FALSE", "TRUE" })
+    eq(run("SUM(price)", rows), { "0.35", "0.35", "0.35" })
+    eq(run("MAX(price)", rows), { "0.25", "0.25", "0.25" })
+    eq(run("COUNT(price)", rows), { "2", "2", "2" })
+    -- one cell that is not a percentage and the column is plain text
+    eq(run("price = \"10%\"", { { "10%" }, { "5" } }), { "TRUE", "FALSE" })
+    local _, failures = run("price * 2", { { "10%" }, { "5" } })
+    eq(failures, { 1 }) -- the "10%" is text here; the 5 is a number
+    -- the hidden rows count in the decision, and a missing field is empty
+    eq(run("price * 2", { { "10%" }, { "5" }, { "20%" } }, { shown = { 1, 3 } })[1], "")
+    eq(run("price * 2", { { "10%" }, {}, { "20%" } }, { shown = { 1 } }), { "0.2" })
+    -- PCT_CHANGE works on the decimals
+    eq(run("PCT_CHANGE(price)", { { "10%" }, { "20%" } }), { "0", "1" })
+  end,
+
+  ["PCT_CHANGE: growth over the previous visible row; 0 without a usable previous value, empty for other types"] = function()
+    local function clean(expr, rows, ctx) -- the values; no row may fail
+      local values, failures, err = run(expr, rows, ctx)
+      assert(#failures == 0, expr .. " failed: " .. tostring(err))
+      return values
+    end
+    local rows = { { "100" }, { "110" }, { "0" }, { "50" }, { "" }, { "70" } }
+    -- first row, previous 0 and previous empty give 0; an empty value after a number is empty
+    eq(clean("PCT_CHANGE(price)", rows), { "0", "0.1", "-1", "0", "", "0" })
+    eq(clean("PCT_CHANGE(price, 2)", rows), { "0", "0", "-1", "-0.545454545454545", "0", "0.4" })
+    eq(clean("PCT_CHANGE(price * 2)", { { "1" }, { "3" } }), { "0", "2" })
+    -- a previous 0, empty or missing gives 0 whatever the value is; after
+    -- text, a date or a bool the cell is empty, with no failure
+    eq(clean("PCT_CHANGE(name)", { { [3] = "a" }, { [3] = "b" } }), { "0", "" })
+    eq(clean("PCT_CHANGE(day)", { { [5] = "2024-01-01" }, { [5] = "2024-01-02" } }), { "0", "" })
+    eq(clean("PCT_CHANGE(flag)", { { [6] = "true" }, { [6] = "false" } }), { "0", "" })
+    eq(clean("PCT_CHANGE(name)", { { [3] = "" }, { [3] = "a" }, { [3] = "b" } }), { "0", "0", "" })
+    eq(clean("PCT_CHANGE(price)", { { "0" }, { "a" } }), { "0", "0" })
+    eq(clean("PCT_CHANGE(price)", { { "1" }, { "a" }, { "3" } }), { "0", "", "" })
+    -- only the shown rows, in their order
+    eq(clean("PCT_CHANGE(price)", { { "1" }, { "2" }, { "4" } }, { shown = { 3, 1 } }), { [1] = "-0.75", [3] = "0" })
+    eq(fails("PCT_CHANGE(price, 0)", { "1" }), "PCT_CHANGE: n must be 1 or more")
+    assert(compile_error("PCT_CHANGE()"):find("wrong number of arguments for PCT_CHANGE"))
+    eq(select(2, pcall(formula.filterable, formula.compile("PCT_CHANGE(price) > 1", HEADER))), "csvkit: PCT_CHANGE works in addcol and setcol, not in filters")
+  end,
+
   ["PREV: the value n visible rows up, in the current order"] = function()
     local rows = { { "100" }, { "110" }, { "121" }, { "" } }
     eq(run("PREV(price)", rows), { "0", "100", "110", "121" }) -- nothing above the first: the default, 0

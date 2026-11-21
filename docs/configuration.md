@@ -266,9 +266,18 @@ csvkit decides the type of each cell from its text, with spaces at both ends ign
 | bool | `true` or `false`, any case | `TRUE`, `False` |
 | text | Anything else | `abc`, `0x1A`, `inf`, `1.2.3` |
 
-Things that are deliberately **not** numbers: hexadecimal (`0x1A`), `inf`, `nan`, currency (`$1,234`) and percentages (`45%`). With a thousands separator set, every group after the first must have exactly 3 digits: with `decimal = ","` and `thousands = "."`, `1.234,56` is a number but `1.5` is not.
+Things that are deliberately **not** numbers: hexadecimal (`0x1A`), `inf`, `nan` and currency (`$1,234`). A percentage (`45%`) is not a number on its own either, but see [percentage columns](#percentage-columns) below. With a thousands separator set, every group after the first must have exactly 3 digits: with `decimal = ","` and `thousands = "."`, `1.234,56` is a number but `1.5` is not.
 
 **A column's type**, used for sorting, is the type all of its non-empty cells share. If even one non-empty cell differs, the column sorts as text. `:Csvkit sort price num` forces a type.
+
+### Percentage columns
+
+A column is a **percentage column** when it has at least one non-empty cell and **every** non-empty cell is a number followed by `%` (`45%`, `12.5 %`, `-5%`; the number is written with the file's `decimal`). csvkit then reads each cell as the decimal it stands for: `45%` is `0.45`, `12.5%` is `0.125`, `100%` is `1`. One cell that is not a percentage (a plain `45`, a `n/a`) and the whole column is text again: nothing is guessed.
+
+- **The file is never changed.** `45%` stays `45%`. Only the way csvkit reads the column changes: `:Csvkit columns dtype` shows `percent`; sorting and the browser preview order it by its numbers (`9%` before `10%`); [formulas](formulas.md) and `groupby` see decimals (`rate * 100`, `SUM(rate)`); `stats` gives `min` and `max` as written and the `sum` and `average` as decimals.
+- To **write the decimals into the file**, run a formula over the column: `:Csvkit setcol rate formula rate` turns `45%` into `0.45` in every visible row (the column is then a number column).
+- The decision looks at every row of the column, the ones your filters hide too.
+- Filtering by value (the list of values) still shows the cells as written.
 
 </details>
 

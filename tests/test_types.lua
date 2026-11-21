@@ -136,6 +136,23 @@ return {
     eq(types.typeof("Ana", o), "string")
   end,
 
+  ["percent: a column where every non-empty cell is a number followed by %"] = function()
+    local o = vim.tbl_extend("force", DOT, DATES)
+    eq({ types.parse_percent("45%", o), types.parse_percent(" 12.5 % ", o), types.parse_percent("-5%", o), types.parse_percent("100%", o) }, { 0.45, 0.125, -0.05, 1 })
+    for _, s in ipairs({ "45", "%", "4%5", "5%%", "a%", "5 %x", "", "1,5%" }) do
+      eq(types.parse_percent(s, o), nil)
+    end
+    eq(types.parse_percent("12,5%", { decimal = ",", thousands = false }), 0.125)
+    eq(types.typeof("45%", o), "string") -- a cell alone is still text: only a whole column is percent
+    eq(types.infer_column({ "10%", "", "2.5%", " 7 %" }, o), "percent")
+    eq(types.infer_column({ "10%", "20" }, o), "string") -- one cell that is not a percentage
+    eq(types.infer_column({ "20", "10%" }, o), "string")
+    eq(types.infer_column({ "10%", "abc" }, o), "string")
+    eq(types.infer_column({ "", "%" }, o), "string")
+    eq(types.is_percent_column({ "1%", nil, "3%" }, o, 3), true) -- a missing field is empty
+    eq(types.is_percent_column({ "", "" }, o), false)
+  end,
+
   ["infer_column"] = function()
     local o = vim.tbl_extend("force", DOT, DATES)
     eq(types.infer_column({ "1", "2.5", "", "-3" }, o), "number") -- empties ignored

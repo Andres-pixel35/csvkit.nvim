@@ -8,6 +8,7 @@ local M = {}
 -- does not have that type. "string" has none: every cell sorts as text.
 local KEY = {
   number = types.parse_number,
+  percent = types.parse_percent,
   date = function(s, opts)
     local d = types.parse_date(s, opts)
     return d and d.day
@@ -202,7 +203,7 @@ end
 
 -- Returns the row indices of cells (one column's data cells, no header) in
 -- sorted order. spec = { desc, type }; type is "number" | "date" | "bool" |
--- "string" and defaults to types.infer_column. Order: cells of the type, then
+-- "percent" | "string" and defaults to types.infer_column. Order: cells of the type, then
 -- other non-empty cells as text (both follow desc), then empty cells, which
 -- always come last. Text compares case-insensitively, then case-sensitively;
 -- any remaining tie keeps the original order.

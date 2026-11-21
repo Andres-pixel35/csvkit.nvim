@@ -521,6 +521,76 @@ return {
     eq(lines(), original)
   end,
 
+  ["groupby: one row per key combination, with aggregates, on the visible rows"] = function()
+    local original = { "city,year,qty,note", "Madrid,2020,5,a", "Paris,2020,2,b", "Madrid,2021,7,", "Madrid,2020,3,c", "Paris,2020,,d" }
+    open(original)
+    eq(csvkit("groupby city, year sum qty, count qty"), {})
+    eq(lines(), { "city,year,sum_qty,count_qty", "Madrid,2020,8,2", "Paris,2020,2,1", "Madrid,2021,7,1" })
+    undo_restores(original)
+    csvkit("groupby city avg qty, max year, min qty")
+    eq(lines(), { "city,avg_qty,max_year,min_qty", "Madrid,5,2021,3", "Paris,2,2020,2" })
+    vim.cmd("silent undo")
+    csvkit("groupby city") -- keys only: the distinct values
+    eq(lines(), { "city", "Madrid", "Paris" })
+    vim.cmd("silent undo")
+    csvkit("filter year = 2020") -- hidden rows are left out
+    csvkit("groupby city sum qty")
+    eq(lines(), { "city,sum_qty", "Madrid,8", "Paris,2" })
+    eq(require("csvkit.filter").states[vim.api.nvim_get_current_buf()], nil) -- the old filter named columns that are gone
+    eq(csvkit("setcol sum_qty formula sum_qty * 2"), {})
+    eq(lines(), { "city,sum_qty", "Madrid,16", "Paris,4" })
+    vim.cmd("silent undo")
+    vim.cmd("silent undo")
+    -- a group an aggregate fails on gets an empty cell, and a warning
+    eq(csvkit("groupby city sum note"), {
+      { "csvkit: 2 cells failed (rows 2, 3): SUM: expected number, got string", vim.log.levels.WARN },
+    })
+    eq(lines(), { "city,sum_note", "Madrid,", "Paris," })
+  end,
+
+  ["a percentage column: dtype, setcol turns it to decimals, groupby aggregates it"] = function()
+    open({ "city,rate", "A,10%", "A,20%", "B,5%" })
+    csvkit("columns dtype")
+    eq(lines(), { "0  city  [string]", "1  rate  [percent]" })
+    vim.cmd("close")
+    csvkit("groupby city sum rate, max rate")
+    eq(lines(), { "city,sum_rate,max_rate", "A,0.3,0.2", "B,0.05,0.05" })
+    vim.cmd("silent undo")
+    csvkit("sort rate desc")
+    eq(lines(), { "city,rate", "A,20%", "A,10%", "B,5%" })
+    csvkit("setcol rate formula rate") -- the file's cells become the decimals
+    eq(lines(), { "city,rate", "A,0.2", "A,0.1", "B,0.05" })
+    csvkit("columns dtype")
+    eq(lines(), { "0  city  [string]", "1  rate  [number]" })
+    vim.cmd("close")
+  end,
+
+  ["groupby without a header names the columns by number; errors leave the buffer alone"] = function()
+    open({ "a,1", "a,2", "b,5" })
+    vim.b.csvkit = { header = false }
+    csvkit("groupby 0 sum 1")
+    eq(lines(), { "a,3", "b,5" })
+    open(SIMPLE)
+    for args, msg in pairs({
+      [""] = "csvkit: usage: groupby {col}[, {col} ...] [sum|avg|min|max|count {col}[, ...]]",
+      ["sum age"] = "csvkit: usage: groupby {col}[, {col} ...] [sum|avg|min|max|count {col}[, ...]]",
+      ["city sum"] = "csvkit: usage: groupby {col}[, {col} ...] [sum|avg|min|max|count {col}[, ...]]",
+      ["city sum age avg"] = "csvkit: usage: groupby {col}[, {col} ...] [sum|avg|min|max|count {col}[, ...]]",
+      ["nope"] = 'csvkit: no column "nope"',
+      ["city sum nope"] = 'csvkit: no column "nope"',
+    }) do
+      eq(csvkit("groupby " .. args), { { msg, vim.log.levels.ERROR } })
+    end
+    eq(lines(), SIMPLE)
+  end,
+
+  ["PCT_CHANGE in setcol and addcol"] = function()
+    open({ "t,g", "100,", "110,", "0,", "5,", "x," })
+    csvkit("setcol g formula PCT_CHANGE(t)")
+    eq(lines(), { "t,g", "100,0", "110,0.1", "0,-1", "5,0", "x," })
+    eq(csvkit("filter PCT_CHANGE(t) > 0"), { { "csvkit: PCT_CHANGE works in addcol and setcol, not in filters", vim.log.levels.ERROR } })
+  end,
+
   ["negative column numbers count from the end (-1 is the last): delcol, goto, sort, formulas"] = function()
     local original = { "a,b,c,d,e,f", "1,2,3,4,5,6" }
     for args, want in pairs({
@@ -697,7 +767,7 @@ return {
       ["stats age 0"] = usage,
       ["stats age 1 2"] = usage,
       ["stats age max 3"] = "csvkit: stats: n goes with largest or smallest",
-      ["stats name sum"] = "csvkit: stats: sum needs a number column, and this one is string",
+      ["stats name sum"] = "csvkit: stats: sum needs a number or percent column, and this one is string",
       ["stats nope"] = 'csvkit: no column "nope"',
     }) do
       eq(csvkit(args), { { msg, vim.log.levels.ERROR } })
@@ -941,7 +1011,8 @@ return {
     local function complete(line)
       return vim.fn.getcompletion(line, "cmdline")
     end
-    eq(complete("Csvkit "), { "addcol", "align", "apply", "columns", "decimal", "delcol", "discard", "filter", "goto", "hide", "mv", "preview", "restore", "row", "setcol", "sort", "stats", "thousands", "view" })
+    eq(complete("Csvkit "), { "addcol", "align", "apply", "columns", "decimal", "delcol", "discard", "filter", "goto", "groupby", "hide", "mv", "preview", "restore", "row", "setcol", "sort", "stats", "thousands", "view" })
+    eq(complete("Csvkit groupby "), { "name", [[unit\ price]], "age", "sum", "avg", "min", "max", "count" })
     eq(complete("Csvkit row "), { "add", "delete" })
     eq(complete("Csvkit row delete "), { "where", "hidden" })
     eq(complete("Csvkit row delete where "), { "name", [[unit\ price]], "age" })

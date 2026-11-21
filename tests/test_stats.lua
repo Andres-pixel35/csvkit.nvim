@@ -21,6 +21,11 @@ local function refused(cells, only)
 end
 
 return {
+  ["a percentage column: type percent, min and max as written, the sum as a decimal"] = function()
+    local texts = entries({ "10%", "", "25%", "5%" }, { n = 1, only = { type = true, min = true, max = true, sum = true, average = true } })
+    eq(texts, { "type         percent", "min          5%", "max          25%", "sum          0.4", "average      0.133333333333333" })
+  end,
+
   ["numbers: counts, min, max, sum, average, largest and smallest, every value"] = function()
     local texts, copies = entries({ "3", " 10 ", "", "2.5", "3", "-1" })
     eq(texts, {
@@ -125,12 +130,12 @@ return {
   end,
 
   ["only: a figure the column's type has not is refused"] = function()
-    eq(refused({ "a", "b" }, { sum = true }), "csvkit: stats: sum needs a number column, and this one is string")
-    eq(refused({ "a", "b" }, { min = true }), "csvkit: stats: min needs a number or date column, and this one is string")
-    eq(refused({ "true", "false" }, { largest = true }), "csvkit: stats: largest needs a number or date column, and this one is bool")
-    eq(refused({ "2024-01-01" }, { average = true }), "csvkit: stats: average needs a number column, and this one is date")
+    eq(refused({ "a", "b" }, { sum = true }), "csvkit: stats: sum needs a number or percent column, and this one is string")
+    eq(refused({ "a", "b" }, { min = true }), "csvkit: stats: min needs a number, percent or date column, and this one is string")
+    eq(refused({ "true", "false" }, { largest = true }), "csvkit: stats: largest needs a number, percent or date column, and this one is bool")
+    eq(refused({ "2024-01-01" }, { average = true }), "csvkit: stats: average needs a number or percent column, and this one is date")
     eq(refused({ "1", "2" }, { newest = true }), "csvkit: stats: newest needs a date column, and this one is number")
     -- one number among text makes the column text
-    eq(refused({ "1", "x" }, { max = true }), "csvkit: stats: max needs a number or date column, and this one is string")
+    eq(refused({ "1", "x" }, { max = true }), "csvkit: stats: max needs a number, percent or date column, and this one is string")
   end,
 }

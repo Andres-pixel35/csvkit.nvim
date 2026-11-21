@@ -339,6 +339,45 @@ local function setcol(args)
   warn_failures(failures, err)
 end
 
+-- :Csvkit groupby {col}[, {col} ...] [sum|avg|min|max|count {col}[, ...]]:
+-- replaces the rows the filters show with one row per distinct combination
+-- of the key columns, plus the aggregates asked for. Commas are optional.
+-- Staged in the view.
+local function groupby(args)
+  local usage = "csvkit: usage: groupby {col}[, {col} ...] [sum|avg|min|max|count {col}[, ...]]"
+  local aggregates = require("csvkit.formula").AGGREGATES
+  local w = split((args:gsub(",", " ")), math.huge)
+  local view = in_view() and require("csvkit.view")
+  if not view then
+    edit.check_modifiable(0)
+  end
+  local t = not view and edit.read(0)
+  local function column(name)
+    return view and view.column(0, name) or edit.col_index(t, name)
+  end
+  local spec, k = { keys = {}, aggs = {} }, 1
+  while w[k] and not aggregates[w[k]:upper()] do
+    spec.keys[k], k = column(w[k]), k + 1
+  end
+  if k == 1 then
+    error(usage, 0)
+  end
+  while w[k] do
+    if not (aggregates[w[k]:upper()] and w[k + 1]) then
+      error(usage, 0)
+    end
+    spec.aggs[#spec.aggs + 1] = { name = w[k]:upper(), col = column(w[k + 1]) }
+    k = k + 2
+  end
+  if view then
+    return warn_failures(view.groupby(0, spec))
+  end
+  local filter = require("csvkit.filter")
+  local failures, err = edit.groupby(t, spec, filter.hidden(t.buf, t))
+  filter.clear(t.buf) -- the columns changed, and every row left was visible
+  warn_failures(failures, err)
+end
+
 -- :Csvkit decimal {...} / :Csvkit thousands {...}: remembered for the file.
 local function remember_opt(key)
   return function(args)
@@ -675,6 +714,7 @@ local SUBS = {
   decimal = remember_opt("decimal"),
   filter = filter,
   ["goto"] = goto_col,
+  groupby = groupby,
   hide = hide,
   mv = mv,
   preview = preview,
@@ -732,6 +772,8 @@ local function candidates(words)
     return n == 1 and vim.list_extend(header_names(), figures) or vim.list_slice(figures)
   elseif sub == "delcol" then
     return header_names()
+  elseif sub == "groupby" then
+    return vim.list_extend(header_names(), { "sum", "avg", "min", "max", "count" })
   elseif sub == "mv" then
     return n == 1 and { "col" } or n == 2 and header_names() or {}
   elseif sub == "hide" then
